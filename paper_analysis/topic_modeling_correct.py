@@ -24,7 +24,7 @@ from shared_utils import (
     truncate_text,
 )
 
-from topic_modelling import (
+from topic_modeling import (
     TopicModelingSystem,
     TopicModelingCorrect,
     TOPICGPT_AVAILABLE,
