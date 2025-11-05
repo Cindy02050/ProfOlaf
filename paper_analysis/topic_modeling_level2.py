@@ -204,7 +204,7 @@ def main():
     result = topic_modeling_system.execute_step(
         args.pdf_folder,
         args.output_dir,
-        max_workers=args.max_workers,
+        max_workers=int(args.max_workers),
         seed_file=args.seed_file,
         prompt_file=args.prompt_file,
         level1_topics_file=args.level1_topics_file,
