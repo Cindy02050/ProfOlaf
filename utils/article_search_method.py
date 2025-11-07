@@ -219,11 +219,11 @@ class DBLPSearchMethod(ArticleSearchMethod):
 
 class SemanticScholarSearchMethod(ArticleSearchMethod):
     name = SearchMethod.SEMANTIC_SCHOLAR.value
-    search_query = "https://api.semanticscholar.org/graph/v1/paper/search/match?query={query}&fields=title,authors,paperId,citationStyles,venue,year,url"
+    search_query = "https://api.semanticscholar.org/graph/v1/paper/search/match?query={query}&fields=title,authors,paperId,citationStyles,venue,year,url,citationCount"
     bibtex_query = "https://api.semanticscholar.org/graph/v1/paper/{paper_id}?fields=citationStyles"
-    snowballing_query = "https://api.semanticscholar.org/graph/v1/paper/search/match?query={query}&fields=title,authors,paperId,citations,references"
-    citations_query = "https://api.semanticscholar.org/graph/v1/paper/{paper_id}/citations?fields=title,authors,paperId,venue,year,openAccessPdf"
-    references_query = "https://api.semanticscholar.org/graph/v1/paper/{paper_id}/references?fields=title,authors,paperId,venue,year,url"
+    snowballing_query = "https://api.semanticscholar.org/graph/v1/paper/search/match?query={query}&fields=title,authors,paperId,citations,references,citationCount"
+    citations_query = "https://api.semanticscholar.org/graph/v1/paper/{paper_id}/citations?fields=title,authors,paperId,venue,year,openAccessPdf,citationCount"
+    references_query = "https://api.semanticscholar.org/graph/v1/paper/{paper_id}/references?fields=title,authors,paperId,venue,year,url,citationCount"
 
     def get_article_data(self, pub, pub_id, iteration: int = 0, selected: SelectionStage = SelectionStage.NOT_SELECTED, new_pub: bool = False, search_method: str = ""):
         article_data = {
@@ -236,7 +236,7 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
             "venue": pub.get("venue", ""),
             "pub_year": str(pub.get("pub_year", "0")),
             "pub_url": pub.get("eprint_url", pub.get("pub_url", "")),
-            "num_citations": pub.get("citations", 0),
+            "num_citations": pub.get("num_citations", 0),
             "citedby_url": pub.get("citedby_url", ""),
             "url_related_articles": pub.get("url_related_articles", ""),
             "new_pub": new_pub,
@@ -282,15 +282,17 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
             "paperId": article["paperId"],
             "authors": article["authors"],
             "eprint_url": article.get("openAcessPdf", {}).get("url", "") or article.get("url", ""),
+            "num_citations": article.get("citationCount", 0),
         }
     
     def get_bibtex(self, article: ArticleData):
+        if not article.id:
+            return None
         initial_delay = 1
         response = requests.get(self.bibtex_query.format(paper_id=article.id), timeout=60)
         
         while response.status_code == 429:
             print(f"{SS_SEARCH_TAG} Rate limit exceeded for", article.title)
-            retry_after = response.headers.get("Retry-After")
             retry_after = int(response.headers.get("Retry-After", initial_delay))
             print(f"Rate limited. Waiting {retry_after} seconds...")
             time.sleep(retry_after)
@@ -311,12 +313,18 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         all_citations = []
         offset = 0
         limit = 100  # Maximum allowed by the API
+        initial_delay = 1
         
         while True:
             query_url = f"{self.citations_query.format(paper_id=citedby)}&offset={offset}&limit={limit}"
             response = requests.get(query_url, timeout=60)
-            response.raise_for_status()
-            if response.status_code != 200:
+            if response.status_code == 429:
+                print(f"{SS_SEARCH_TAG} Rate limit exceeded for", citedby)
+                retry_after = int(response.headers.get("Retry-After", initial_delay))
+                print(f"Rate limited. Waiting {retry_after} seconds...")
+                time.sleep(retry_after)
+                continue
+            elif response.status_code != 200:
                 print(f"{SS_SEARCH_TAG} Citations not found for", citedby)
                 return None
             data = response.json()
@@ -342,8 +350,13 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         while True:
             query_url = f"{self.references_query.format(paper_id=citedby)}&offset={offset}&limit={limit}"
             response = requests.get(query_url, timeout=60)
-            response.raise_for_status()
-            if response.status_code != 200:
+            if response.status_code == 429:
+                print(f"{SS_SEARCH_TAG} Rate limit exceeded for", citedby)
+                retry_after = int(response.headers.get("Retry-After", 1))
+                print(f"Rate limited. Waiting {retry_after} seconds...")
+                time.sleep(retry_after)
+                continue
+            elif response.status_code != 200:
                 print(f"{SS_SEARCH_TAG} References not found for", citedby)
                 return None
             data = response.json()
@@ -361,6 +374,8 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         return all_references
  
     def get_snowballing_articles(self, citedby: str, **kwargs):
+        if not citedby:
+            return []
         backwards = kwargs.get("backwards", False)
         forwards = kwargs.get("forwards", False)
         iteration = kwargs.get("iteration", 0)
@@ -373,9 +388,13 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         articles = []
         for citation in citations:
             pub = self.map_to_pub(citation["citingPaper"])
+            if not pub:
+                continue
             articles.append(self.get_article_data(pub, pub["paperId"], iteration, new_pub=True, search_method=self.name))
         for reference in references:
             pub = self.map_to_pub(reference["citedPaper"])
+            if not pub:
+                continue
             articles.append(self.get_article_data(pub, pub["paperId"], iteration, new_pub=True, search_method=self.name))
 
         return articles
