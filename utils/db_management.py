@@ -238,7 +238,7 @@ class DBManager:
                         conditions.append(f"{field_name} <= ?")
                         values.append(self._convert_enum_value(value))
                     elif operator == 'like':
-                        conditions.append(f"{field_name} LIKE ?")
+                        conditions.append(f"lower({field_name}) LIKE ?")
                         values.append(self._convert_enum_value(value))
                     elif operator == 'in':
                         placeholders = ','.join(['?' for _ in value])
@@ -328,6 +328,15 @@ class DBManager:
         except Exception as e:
             self.conn.rollback()
             raise ValueError(f"Failed to update batch iteration data: {e}")
+
+    def delete_batch_iteration_data(self, iteration: int, delete_data: List[str]):
+        table_name = "iterations"
+        try:
+            self.cursor.executemany(f"DELETE FROM {table_name} WHERE id = ? and iteration = ?", delete_data)
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to delete batch iteration data: {e}")
 
     # -------------------------- Seen Titles Table Methods --------------------------
     

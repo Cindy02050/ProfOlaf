@@ -33,17 +33,23 @@ def parse_args():
 
 def manual_validation(pubs):
     print(f"Found {len(pubs)} articles with arxiv as the venue")
+    articles_to_delete = []
+    articles_to_update = []
     for i,pub in enumerate(pubs):
         print(f"Article {i+1}: {pub.title}")
         user_input = input("Is this article valid? (y/n): ")
         if user_input == 'n':
+            articles_to_delete.append(pub.id)
             continue
         elif user_input != 'y':
             print("Please enter 'y' for yes or 'n' for no. skipping...")
             continue
         else:
-            user_input = input("Enter the title of the article for the search:")
-            
+            user_input = input("Enter the venue of the article for the search:")
+            articles_to_update.append((pub.id, user_input, "venue"))
+    db_manager.update_batch_iteration_data(args.iteration, articles_to_update)
+    db_manager.delete_batch_iteration_data(args.iteration, articles_to_delete)
+
 
 def main():
     args = parse_args()
