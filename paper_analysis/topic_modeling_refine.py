@@ -152,6 +152,7 @@ def parse_args():
     parser.add_argument('--max-workers', help='Maximum number of parallel workers for PDF processing', default=4)
     parser.add_argument("--topic-file", help='Path to topic file')
     parser.add_argument("--prompt-file", help='Path to prompt file for level1 topic generation')
+    parser.add_argument("--no-remove", help='Do not remove topics during refinement', action='store_true')
     parser.add_argument("--help-detailed", help='Show detailed help with examples and workflow', action='store_true')
     return parser.parse_args()
 
@@ -206,6 +207,7 @@ def main():
         max_workers=int(args.max_workers),
         topic_file=args.topic_file,
         prompt_file=args.prompt_file,
+        remove=not args.no_remove,
     )
 
     if result.get("success", False):

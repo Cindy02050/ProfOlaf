@@ -344,7 +344,7 @@ class TopicModelingRefine(TopicModelingStep):
                 temperature=self.temperature,
                 max_tokens=self.max_output_tokens,
                 verbose=True,
-                remove=True,
+                remove=kwargs.get("remove", True),
                 mapping_file=mapping_file,
             )
 
