@@ -6,7 +6,9 @@
 The **ProfOlaf** tool was built to help researchers with literature reviews. It automates the process of snowballing articles through an initial seed, and helps raters through the process of screening.
 
 If you use our tool, please cite it:
-[link to the article](https://arxiv.org/pdf/2510.26750)
+
+
+[Link to the article](https://arxiv.org/pdf/2510.26750)
 ```
 @article{afonso2025profolaf,
   title={ProfOlaf: Semi-Automated Tool for Systematic Literature Reviews},
