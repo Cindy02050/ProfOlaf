@@ -5,6 +5,17 @@
 
 The **ProfOlaf** tool was built to help researchers with literature reviews. It automates the process of snowballing articles through an initial seed, and helps raters through the process of screening.
 
+If you use our tool, please cite it:
+[link to the article](https://arxiv.org/pdf/2510.26750)
+```
+@article{afonso2025profolaf,
+  title={ProfOlaf: Semi-Automated Tool for Systematic Literature Reviews},
+  author={Afonso, Martim and Saavedra, Nuno and Louren{\c{c}}o, Bruno and Mendes, Alexandra and Ferreira, Jo{\~a}o},
+  journal={arXiv preprint arXiv:2510.26750},
+  year={2025}
+}
+```
+
 ## Setup - Generating the Search Configuration
 
 **`generate_search_conf.py`** is used to interactively create a `search_conf.json` file that stores all configuration parameters needed for scraping and data collection.
