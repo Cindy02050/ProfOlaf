@@ -329,10 +329,10 @@ class DBManager:
             self.conn.rollback()
             raise ValueError(f"Failed to update batch iteration data: {e}")
 
-    def delete_batch_iteration_data(self, iteration: int, delete_data: List[str]):
+    def delete_batch_iteration_data(self, iteration: int, delete_data: List):
         table_name = "iterations"
         try:
-            self.cursor.executemany(f"DELETE FROM {table_name} WHERE id = ? and iteration = ?", delete_data)
+            self.cursor.executemany(f"DELETE FROM {table_name} WHERE title = ? and iteration = ?", [(title, iteration) for title in delete_data])
             self.conn.commit()
         except Exception as e:
             self.conn.rollback()

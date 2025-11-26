@@ -28,7 +28,7 @@ def is_year_valid(pub_year):
     Check if the publication is between the start and end year.
     """
     pub_year = int(pub_year) if pub_year.isdigit() else 0   
-    if pub_year != 0 and (pub_year < search_conf["start_year"] or pub_year > search_conf["end_year"]):
+    if pub_year != 0 and (pub_year < int(search_conf["start_year"]) or pub_year > int(search_conf["end_year"])):
         return False
     if pub_year == 0:
         while True:

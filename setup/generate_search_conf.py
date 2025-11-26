@@ -85,6 +85,7 @@ def generate_search_conf(args):
         "initial_file": initial_file,
         "db_path": db_path,
         "csv_path": csv_path
+        "search_method": search_method
     }
 
 

@@ -96,7 +96,9 @@ class GoogleScholarSearchMethod(ArticleSearchMethod):
 
 
     def search(self, query: str):
+        print(f"{GS_SEARCH_TAG} Searching for", query)
         pub = scholarly.search_single_pub(query)
+        print(f"{GS_SEARCH_TAG} Found", pub)
         if pub is None:
             print(f"{GS_SEARCH_TAG} No results found for", query)
             return None

@@ -88,6 +88,17 @@ def get_bibtex_venue(bibtex: str):
     
     return ""
 
+def get_bibtex_year(bibtex: str):
+    if bibtex != "":
+        library = bibtexparser.loads(bibtex)
+        # Check if entries list is not empty before accessing first element
+        if not library.entries:
+            return ""
+        if not "year" in library.entries[0]:
+            return ""
+        return library.entries[0]["year"]
+    return ""
+
 def _get_main_bibtex(article: ArticleData) -> Tuple[str, str]:
     current_wait_time = 20
     max_retries = 3
@@ -229,6 +240,17 @@ def process_articles_batch(articles: List[ArticleData], max_workers: int = 3) ->
     
     return results
 
+def update_bibtex_info(iteration: int, results: List[Tuple[str, str, str]], db_manager: DBManager):
+    venue_updates = []
+    year_updates = []
+    for article_id, bibtex, _ in results:
+        venue = get_bibtex_venue(bibtex)
+        year = get_bibtex_year(bibtex)
+        venue_updates.append((article_id, venue, "venue"))
+        year_updates.append((article_id, year, "pub_year"))
+    db_manager.update_batch_iteration_data(iteration, results)
+    db_manager.update_batch_iteration_data(iteration, venue_updates)
+    db_manager.update_batch_iteration_data(iteration, year_updates)
 
 def process_articles_optimized(iteration: int, articles: List[ArticleData], 
                               batch_size: int = 10, max_workers: int = 3, 
@@ -268,7 +290,7 @@ def process_articles_optimized(iteration: int, articles: List[ArticleData],
             article_id, bibtex = get_bibtex_single(article, search_method, delay_between_requests=delay)
             results.append((article_id, bibtex, "bibtex"))
             if len(results) >= batch_size or i == len(articles_to_process) - 1:
-                db_manager.update_batch_iteration_data(iteration, results)
+                update_bibtex_info(iteration, results, db_manager)
                 results = []
 
 if __name__ == "__main__":

@@ -31,7 +31,6 @@ def get_articles(iteration: int, initial_pubs, db_manager: DBManager, article_se
     """
     for initial_pub in tqdm(initial_pubs, desc="Getting articles from snowballing..."):
         citedby = initial_pub.id
-        print("Citedby: ", citedby)
         
         articles = article_search.get_snowballing_articles(citedby, iteration=iteration, backwards=True, forwards=True)
         if len(articles) == 0:

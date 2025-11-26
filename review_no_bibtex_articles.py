@@ -18,6 +18,7 @@ from utils.article_search_method import (
     ArticleSearch, 
     SearchMethod,
     SemanticScholarSearchMethod,
+    GoogleScholarSearchMethod,
 )
 
 with open("search_conf.json", "r") as f:
@@ -40,44 +41,70 @@ def search_for_articles(article_titles):
     google_scholar_search = GoogleScholarSearchMethod()
     articles_to_update = []
     articles_not_found = []
-    for article_id, article_title in article_titles:
-        article = semantic_scholar_search.search(article_title)
-        if is_valid_bibtex(article.bibtex):
-            articles.append(article_id, article)
-            continue
-        article = google_scholar_search.search(article_title)
-        if is_valid_bibtex(article.bibtex):
-            articles.append(article_id, article)
-            continue
-        articles_not_found.append(article_id)
+    for article_id, article_title, previous_title in article_titles:
+        try:
+            print(f"Searching for {article_title} with Semantic Scholar")
+            article = semantic_scholar_search.search(article_title)
+            time.sleep(10)
+            bibtex = semantic_scholar_search.get_bibtex(article)
+            article.set_bibtex(bibtex)
+            print(f"Semantic Scholar search for {article_title} found", bibtex)
+            if is_valid_bibtex(bibtex):
+                articles_to_update.append((article.id, article, previous_title))
+                continue
+            print(f"Google Scholar search for {article_title} found", bibtex)
+            if is_valid_bibtex(bibtex):
+                articles_to_update.append((article.id, article, previous_title))
+                continue
+        except Exception as e:
+            print(f"Error searching for {article_title} with Semantic Scholar: {e}")
+            try:
+                article = google_scholar_search.search(article_title)
+                time.sleep(10)
+                bibtex = google_scholar_search.get_bibtex(article)
+                article.set_bibtex(bibtex)
+                articles_not_found.append(article_id)
+            except Exception as e:
+                print(f"Error searching for {article_title} with Google Scholar: {e}")
+                articles_not_found.append(article_id)
+    print("Articles to update: ", articles_to_update)
 
     return articles_to_update, articles_not_found
 
-def manual_validation(pubs):
+def manual_validation(pubs, db_manager, iteration):
     articles_to_delete = []
     article_titles = []
     articles_to_update = []
     print(f"Found {len(pubs)} articles with no bibtex")
-    for i,pub in enumerate(pubs):
+    for i, pub in enumerate(pubs):
         print(f"Article {i+1}: {pub.title}")
         user_input = input("Is this article valid? (y/n): ")
         if user_input == 'n':
-            articles_to_delete.append(pub.id)
+            articles_to_delete.append(pub.title)
             continue
         elif user_input != 'y':
             print("Please enter 'y' for yes or 'n' for no. skipping...")
             continue
         else:
-            user_input = input("Enter the title of the article:")
-            article_titles.append((pub.id, user_input))
+            title_input = input("Enter the title of the article (enter to use the current title):")
+            previous_title = pub.title  
+            if title_input == "":
+                title_input = pub.title
+            else:
+                title_input = title_input.strip()
+            article_titles.append((pub.id, title_input, previous_title))
+            print("Article titles: ", article_titles)
 
     articles_to_update, articles_not_found = search_for_articles(article_titles) 
-    for article_id, article in articles_to_update:
-        db_manager.delete_batch_iteration_data(args.iteration, article_id)
-        db_manager.add_iteration_data(args.iteration, article)
+    for article_id, article, previous_title in articles_to_update:
+        db_manager.delete_batch_iteration_data(iteration, [previous_title])
+        article.set_iteration(iteration)
+        db_manager.insert_iteration_data([article])
+        print(f"Updated article {article_id} with bibtex {article.bibtex}")
     for article_id in articles_not_found:
-        db_manager.delete_batch_iteration_data(args.iteration, article_id)
-    db_manager.delete_batch_iteration_data(args.iteration, articles_to_delete)
+        db_manager.delete_batch_iteration_data(iteration, [previous_title])
+    print("Articles to delete: ", articles_to_delete)
+    db_manager.delete_batch_iteration_data(iteration, articles_to_delete)
 
 def main():
     args = parse_args()
@@ -87,7 +114,7 @@ def main():
         bibtex="NO_BIBTEX"
     )
 
-    manual_validation(initial_pubs)
+    manual_validation(initial_pubs, db_manager, args.iteration)
 
 if __name__ == "__main__":
     main()
