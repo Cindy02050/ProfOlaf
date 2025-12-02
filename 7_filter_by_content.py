@@ -5,6 +5,16 @@ import json
 with open("search_conf.json", "r") as f:
     search_conf = json.load(f)
 
+def introduce_annotations(user,annotations):
+    for annotation in annotations:
+        while True:
+            user_input = input(f"Introduce data about {annotation}: ").strip().lower()
+            confirm = input(f"Is this correct? (y/n): ").strip().lower()
+            if confirm == 'y':
+                user[annotation] = user_input
+                break
+    return user
+
 def choose_elements(articles, db_manager, iteration):
     """
     Choose the elements by abstract and introduction.
@@ -28,15 +38,19 @@ def choose_elements(articles, db_manager, iteration):
             user_input = input(f"Do you want to keep this element? (y/n/s for skip): ").strip().lower()
             if user_input == 'y':
                 user_reason = input(f"Please enter the reason for the selection (enter to skip): ").strip()
+                user = {"reason": user_reason}
+                if search_conf.get("annotations", []) != "" and len(search_conf.get("annotations", [])) > 0:
+                    user = introduce_annotations(user,search_conf.get("annotations", []))
                 article.selected = SelectionStage.CONTENT_APPROVED   
                 updated_data.append((article.id, article.selected, "selected"))
-                updated_data.append((article.id, user_reason, "content_reason"))
+                updated_data.append((article.id, json.dumps(user), "content_reason"))
                 break
             elif user_input == 'n':
                 user_reason = input(f"Please enter the reason for the rejection (enter to skip): ").strip()
+                user = {"reason": user_reason}
                 article.abstract_filtered_out = True
                 updated_data.append((article.id, article.abstract_filtered_out, "abstract_filtered_out"))
-                updated_data.append((article.id, user_reason, "content_reason"))
+                updated_data.append((article.id, json.dumps(user), "content_reason"))
                 break
             elif user_input == 's':
                 break
