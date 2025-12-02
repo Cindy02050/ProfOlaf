@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Papers - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 0;
+        }
+        .sidebar .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            padding: 15px 20px;
+            border-radius: 0;
+            transition: all 0.3s ease;
+        }
+        .sidebar .nav-link:hover {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .sidebar .nav-link.active {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+        .main-content {
+            padding: 30px;
+            background-color: #f8f9fa;
+            min-height: 100vh;
+        }
+        .upload-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar">
+                <div class="p-4">
+                    <h4 class="text-white mb-4">
+                        <i class="fas fa-snowflake"></i> ProfOlaf
+                    </h4>
+                </div>
+                <nav class="nav flex-column">
+                    <a class="nav-link" href="{{ url_for('main') }}">
+                        <i class="fas fa-home"></i> Dashboard
+                    </a>
+                    <a class="nav-link active" href="{{ url_for('upload_page') }}">
+                        <i class="fas fa-upload"></i> Upload Papers
+                    </a>
+                    <a class="nav-link" href="{{ url_for('database_view') }}">
+                        <i class="fas fa-database"></i> Database
+                    </a>
+                    <a class="nav-link" href="{{ url_for('progress') }}">
+                        <i class="fas fa-chart-line"></i> Progress
+                    </a>
+                    <a class="nav-link" href="{{ url_for('results') }}">
+                        <i class="fas fa-list"></i> Results
+                    </a>
+                    <a class="nav-link" href="{{ url_for('snowball_start') }}">
+                        <i class="fas fa-play-circle"></i> Snowball Start
+                    </a>
+                </nav>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="col-md-9 col-lg-10 main-content">
+                <div class="upload-card">
+                    <div class="card-header">
+                        <h3 class="card-title mb-0">
+                            <i class="fas fa-upload"></i> Upload Research Papers
+                        </h3>
+                    </div>
+                    <div class="card-body p-4">
+                        <p class="text-muted mb-4">
+                            Upload a file containing research paper titles to start the snowball sampling process. 
+                            The tool will search Google Scholar for each paper and collect metadata.
+                        </p>
+                        
+                        <form method="POST" action="{{ url_for('upload_file') }}" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="file" class="form-label">Select File</label>
+                                <input type="file" class="form-control" id="file" name="file" 
+                                       accept=".txt,.json" required>
+                                <div class="form-text">
+                                    Supported formats: .txt (one title per line) or .json (with 'papers' array containing 'title' fields)
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="start_year" class="form-label">Starting Year</label>
+                                        <input type="number" class="form-control" id="start_year" name="start_year" 
+                                               value="2020" min="1900" max="2030" step="1">
+                                        <div class="form-text">Year to start the search from</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="end_year" class="form-label">Ending Year</label>
+                                        <input type="number" class="form-control" id="end_year" name="end_year" 
+                                               value="2024" min="1900" max="2030" step="1">
+                                        <div class="form-text">Year to end the search</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="accepted_ranks" class="form-label">Accepted Ranks</label>
+                                        <input type="text" class="form-control" id="accepted_ranks" name="accepted_ranks" 
+                                               value="A,B,C" placeholder="A,B,C">
+                                        <div class="form-text">Comma-separated list of accepted venue ranks (e.g., A,B,C)</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="proxy_key" class="form-label">Proxy Key</label>
+                                        <input type="text" class="form-control" id="proxy_key" name="proxy_key" 
+                                               value="" placeholder="Enter proxy key if needed">
+                                        <div class="form-text">Optional proxy key for accessing Google Scholar</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="final_csv" class="form-label">Final CSV File</label>
+                                        <input type="text" class="form-control" id="final_csv" name="final_csv" 
+                                               value="results.csv" placeholder="results.csv">
+                                        <div class="form-text">Name of the final CSV output file</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="delay" class="form-label">Delay Between Requests (seconds)</label>
+                                        <input type="number" class="form-control" id="delay" name="delay" 
+                                               value="2.0" min="0.5" max="10" step="0.5">
+                                        <div class="form-text">Delay to avoid rate limiting from Google Scholar</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-12">
+                                    <div class="mb-3">
+                                        <label for="db_path" class="form-label">Database Path</label>
+                                        <input type="text" class="form-control" id="db_path" name="db_path" 
+                                               value="database.db">
+                                        <div class="form-text">Path to SQLite database file</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                <button type="button" id="generateConfigBtn" class="btn btn-outline-primary me-md-2">
+                                    <i class="fas fa-cog"></i> Generate Configuration
+                                </button>
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="fas fa-play"></i> Start Processing
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('generateConfigBtn').addEventListener('click', function() {
+            const button = this;
+            const originalText = button.innerHTML;
+            
+            // Disable button and show loading state
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating Configuration...';
+            
+            // Collect form data
+            const formData = {
+                start_year: parseInt(document.getElementById('start_year').value),
+                end_year: parseInt(document.getElementById('end_year').value),
+                accepted_ranks: document.getElementById('accepted_ranks').value.split(',').map(rank => rank.trim()),
+                proxy_key: document.getElementById('proxy_key').value,
+                final_csv: document.getElementById('final_csv').value,
+                delay: parseFloat(document.getElementById('delay').value),
+                db_path: document.getElementById('db_path').value
+            };
+            
+            console.log('Sending form data:', formData);
+            
+            // Make AJAX call to generate search configuration
+            fetch('/api/generate_search_conf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Show success alert with JSON content
+                    const jsonString = JSON.stringify(data.json_content, null, 2);
+                    alert('Configuration Generated Successfully!\n\nJSON Content:\n' + jsonString);
+                } else {
+                    // Show error alert
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while generating the configuration: ' + error.message);
+            })
+            .finally(() => {
+                // Re-enable button and restore original text
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
+        });
+    </script>
+</body>
+</html>

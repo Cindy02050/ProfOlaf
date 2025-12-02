@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snowball Start - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 0;
+        }
+        .sidebar .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            padding: 15px 20px;
+            border-radius: 0;
+            transition: all 0.3s ease;
+        }
+        .sidebar .nav-link:hover {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .sidebar .nav-link.active {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+        .main-content {
+            padding: 30px;
+            background-color: #f8f9fa;
+            min-height: 100vh;
+        }
+        .snowball-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+        }
+        .warning-card {
+            background: linear-gradient(135deg, #ff9a56 0%, #ff6b6b 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .info-card {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar">
+                <div class="p-4">
+                    <h4 class="text-white mb-4">
+                        <i class="fas fa-snowflake"></i> ProfOlaf
+                    </h4>
+                </div>
+                <nav class="nav flex-column">
+                    <a class="nav-link" href="{{ url_for('main') }}">
+                        <i class="fas fa-home"></i> Dashboard
+                    </a>
+                    <a class="nav-link" href="{{ url_for('upload_page') }}">
+                        <i class="fas fa-upload"></i> Upload Papers
+                    </a>
+                    <a class="nav-link" href="{{ url_for('database_view') }}">
+                        <i class="fas fa-database"></i> Database
+                    </a>
+                    <a class="nav-link" href="{{ url_for('progress') }}">
+                        <i class="fas fa-chart-line"></i> Progress
+                    </a>
+                    <a class="nav-link" href="{{ url_for('results') }}">
+                        <i class="fas fa-list"></i> Results
+                    </a>
+                    <a class="nav-link active" href="{{ url_for('snowball_start') }}">
+                        <i class="fas fa-play-circle"></i> Snowball Start
+                    </a>
+                </nav>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="col-md-9 col-lg-10 main-content">
+                <div class="snowball-card">
+                    <div class="card-header">
+                        <h3 class="card-title mb-0">
+                            <i class="fas fa-play-circle"></i> Snowball Sampling Start
+                        </h3>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="warning-card">
+                            <h5 class="mb-3">
+                                <i class="fas fa-exclamation-triangle"></i> One-Time Setup
+                            </h5>
+                            <p class="mb-0">
+                                This process initializes your snowball sampling by searching Google Scholar for your initial paper titles 
+                                and storing them in the database. This should only be run once at the beginning of your research.
+                            </p>
+                        </div>
+
+                        <div class="info-card">
+                            <h5 class="mb-3">
+                                <i class="fas fa-info-circle"></i> What This Does
+                            </h5>
+                            <ul class="mb-0">
+                                <li>Reads paper titles from your input file</li>
+                                <li>Searches Google Scholar for each paper</li>
+                                <li>Extracts citation information and metadata</li>
+                                <li>Stores the initial papers in the database</li>
+                                <li>Creates the foundation for snowball sampling</li>
+                            </ul>
+                        </div>
+
+                        <form method="POST" action="{{ url_for('run_snowball_start') }}" enctype="multipart/form-data">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="input_file" class="form-label">Input File</label>
+                                        <input type="file" class="form-control" id="input_file" name="input_file" 
+                                               accept=".txt,.json" required>
+                                        <div class="form-text">
+                                            Upload a .txt file (one title per line) or .json file (with 'papers' array)
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="db_path" class="form-label">Database Path</label>
+                                        <input type="text" class="form-control" id="db_path" name="db_path" 
+                                               value="database.db" placeholder="database.db">
+                                        <div class="form-text">Path to SQLite database file</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="delay" class="form-label">Delay Between Requests (seconds)</label>
+                                        <input type="number" class="form-control" id="delay" name="delay" 
+                                               value="2.0" min="0.5" max="10" step="0.5">
+                                        <div class="form-text">Delay to avoid rate limiting from Google Scholar</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="proxy_key" class="form-label">Proxy Key (Optional)</label>
+                                        <input type="text" class="form-control" id="proxy_key" name="proxy_key" 
+                                               value="" placeholder="Enter proxy key if needed">
+                                        <div class="form-text">Optional proxy key for accessing Google Scholar</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                <button type="button" id="previewBtn" class="btn btn-outline-info me-md-2">
+                                    <i class="fas fa-eye"></i> Preview File
+                                </button>
+                                <button type="submit" class="btn btn-warning btn-lg" id="startBtn">
+                                    <i class="fas fa-play"></i> Start Snowball Initialization
+                                </button>
+                            </div>
+                        </form>
+
+                        <!-- Preview Section -->
+                        <div id="previewSection" class="mt-4" style="display: none;">
+                            <div class="card">
+                                <div class="card-header bg-info text-white">
+                                    <h5 class="mb-0">
+                                        <i class="fas fa-eye"></i> File Preview
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="previewContent"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Progress Section -->
+                        <div id="progressSection" class="mt-4" style="display: none;">
+                            <div class="card">
+                                <div class="card-header bg-success text-white">
+                                    <h5 class="mb-0">
+                                        <i class="fas fa-spinner fa-spin"></i> Processing...
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="progress mb-3">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                             role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <div id="progressText">Initializing...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Preview file functionality
+        document.getElementById('previewBtn').addEventListener('click', function() {
+            const fileInput = document.getElementById('input_file');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a file first');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                let previewHtml = '';
+                
+                if (file.name.endsWith('.txt')) {
+                    const lines = content.split('\n').filter(line => line.trim());
+                    previewHtml = '<h6>Text File Preview (first 10 lines):</h6><ul>';
+                    lines.slice(0, 10).forEach(line => {
+                        previewHtml += `<li>${line}</li>`;
+                    });
+                    if (lines.length > 10) {
+                        previewHtml += `<li><em>... and ${lines.length - 10} more lines</em></li>`;
+                    }
+                    previewHtml += '</ul>';
+                } else if (file.name.endsWith('.json')) {
+                    try {
+                        const data = JSON.parse(content);
+                        if (data.papers && Array.isArray(data.papers)) {
+                            previewHtml = '<h6>JSON File Preview (first 5 papers):</h6><ul>';
+                            data.papers.slice(0, 5).forEach(paper => {
+                                previewHtml += `<li>${paper.title || 'No title'}</li>`;
+                            });
+                            if (data.papers.length > 5) {
+                                previewHtml += `<li><em>... and ${data.papers.length - 5} more papers</em></li>`;
+                            }
+                            previewHtml += '</ul>';
+                        } else {
+                            previewHtml = '<p>Invalid JSON format. Expected format: {"papers": [{"title": "..."}]}</p>';
+                        }
+                    } catch (error) {
+                        previewHtml = '<p>Error parsing JSON file: ' + error.message + '</p>';
+                    }
+                }
+                
+                document.getElementById('previewContent').innerHTML = previewHtml;
+                document.getElementById('previewSection').style.display = 'block';
+            };
+            
+            reader.readAsText(file);
+        });
+
+        // Form submission with progress indication
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const startBtn = document.getElementById('startBtn');
+            const progressSection = document.getElementById('progressSection');
+            
+            // Show progress section
+            progressSection.style.display = 'block';
+            
+            // Disable button and show loading state
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            
+            // Simulate progress updates (in a real implementation, you'd use WebSockets or polling)
+            let progress = 0;
+            const progressBar = document.querySelector('.progress-bar');
+            const progressText = document.getElementById('progressText');
+            
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 10;
+                if (progress > 90) progress = 90;
+                
+                progressBar.style.width = progress + '%';
+                
+                if (progress < 30) {
+                    progressText.textContent = 'Reading input file...';
+                } else if (progress < 60) {
+                    progressText.textContent = 'Searching Google Scholar...';
+                } else if (progress < 90) {
+                    progressText.textContent = 'Storing results in database...';
+                }
+            }, 1000);
+            
+            // Clear interval after form submission (this is just for UI feedback)
+            setTimeout(() => {
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                progressText.textContent = 'Completed! Redirecting...';
+            }, 5000);
+        });
+    </script>
+</body>
+</html>
+
