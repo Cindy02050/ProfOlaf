@@ -96,6 +96,7 @@ def get_venues(articles: List[ArticleData]):
     Get the venues from the articles.
     """
     venues = set()
+    print("get venues Articles: ", articles)
     for article in articles:
         if article.bibtex != "" and article.bibtex != "NO_BIBTEX":
             library = bibtexparser.loads(article.bibtex)
@@ -108,6 +109,7 @@ def get_venues(articles: List[ArticleData]):
                 venues.add(library.entries[0]["booktitle"])
             elif "journal" in library.entries[0]:
                 venues.add(library.entries[0]["journal"])
+    print("get venues Venues: ", venues)
     return venues
 
 def find_similar_venues(venue: str, existing_venues: Set[str], threshold: float = 0.5, top_k: int = 5) -> List[str]:

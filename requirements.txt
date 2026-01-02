@@ -12,3 +12,7 @@ langchain-community
 langchain-openai
 langchain-google-genai
 langchain-anthropic
+Flask==2.3.3
+python-dotenv
+click
+prompt-toolkit

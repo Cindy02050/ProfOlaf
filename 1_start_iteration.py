@@ -23,7 +23,7 @@ load_dotenv()
 with open("search_conf.json", "r") as f:
     search_conf = json.load(f)
 
-pg = get_proxy(search_conf["proxy_key"])
+#pg = get_proxy(search_conf["proxy_key"])
 
 def get_articles(iteration: int, initial_pubs, db_manager: DBManager, article_search: ArticleSearch, verbose: bool = False):
     """

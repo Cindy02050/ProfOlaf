@@ -325,6 +325,7 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
                 retry_after = int(response.headers.get("Retry-After", initial_delay))
                 print(f"Rate limited. Waiting {retry_after} seconds...")
                 time.sleep(retry_after)
+                initial_delay *= 2
                 continue
             elif response.status_code != 200:
                 print(f"{SS_SEARCH_TAG} Citations not found for", citedby)
@@ -348,15 +349,16 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         all_references = []
         offset = 0
         limit = 100  # Maximum allowed by the API
-        
+        initial_delay = 1
         while True:
             query_url = f"{self.references_query.format(paper_id=citedby)}&offset={offset}&limit={limit}"
             response = requests.get(query_url, timeout=60)
             if response.status_code == 429:
                 print(f"{SS_SEARCH_TAG} Rate limit exceeded for", citedby)
-                retry_after = int(response.headers.get("Retry-After", 1))
+                retry_after = int(response.headers.get("Retry-After", initial_delay))
                 print(f"Rate limited. Waiting {retry_after} seconds...")
                 time.sleep(retry_after)
+                initial_delay *= 2
                 continue
             elif response.status_code != 200:
                 print(f"{SS_SEARCH_TAG} References not found for", citedby)

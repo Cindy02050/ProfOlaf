@@ -103,6 +103,13 @@ class DBManager:
             raise ValueError(f"Database file does not exist: {db_path}")
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
+        
+        # Ensure workflow metadata table exists for existing databases
+        if not new_db:
+            try:
+                self.create_workflow_metadata_table()
+            except:
+                pass  # Table might already exist or there might be other issues
 
     # -------------------------- Iteration Table Methods --------------------------
 
@@ -441,10 +448,112 @@ class DBManager:
             self.conn.rollback()
             raise ValueError(f"Failed to get venue rank data: {e}")
 
+    # -------------------------- Workflow Metadata Table Methods --------------------------
+
+    def create_workflow_metadata_table(self):
+        """Create table to store workflow metadata (current iteration, last step, etc.)"""
+        table_name = "workflow_metadata"
+        try:
+            tables_found = self.cursor.execute(
+                f"""SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'; """
+            ).fetchall()
+            if tables_found != []:
+                return
+            
+            # Create table with a single row (key-value pair approach)
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS workflow_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+            
+            # Initialize with default values if table was just created
+            self.cursor.execute("""
+                INSERT OR IGNORE INTO workflow_metadata (key, value) 
+                VALUES ('current_iteration', NULL), ('last_step', NULL)
+            """)
+            
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to create workflow metadata table: {e}")
+
+    def get_workflow_metadata(self):
+        """Get all workflow metadata as a dictionary"""
+        table_name = "workflow_metadata"
+        try:
+            self.cursor.execute(f"SELECT key, value FROM {table_name}")
+            rows = self.cursor.fetchall()
+            metadata = {}
+            for key, value in rows:
+                metadata[key] = value
+            return metadata
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get workflow metadata: {e}")
+
+    def get_current_iteration(self):
+        """Get current iteration from workflow metadata"""
+        try:
+            metadata = self.get_workflow_metadata()
+            current_iteration = metadata.get('current_iteration')
+            if current_iteration is not None:
+                try:
+                    return int(current_iteration)
+                except (ValueError, TypeError):
+                    return None
+            return None
+        except Exception as e:
+            return None
+
+    def get_last_step(self):
+        """Get last executed step from workflow metadata"""
+        try:
+            metadata = self.get_workflow_metadata()
+            return metadata.get('last_step')
+        except Exception as e:
+            return None
+
+    def set_workflow_metadata(self, key: str, value):
+        """Set a workflow metadata value"""
+        table_name = "workflow_metadata"
+        try:
+            # Convert value to string if it's not None
+            if value is not None:
+                value_str = str(value)
+            else:
+                value_str = None
+            
+            self.cursor.execute(
+                f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)",
+                (key, value_str)
+            )
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to set workflow metadata: {e}")
+
+    def update_current_iteration(self, iteration):
+        """Update current iteration in workflow metadata"""
+        self.set_workflow_metadata('current_iteration', iteration)
+
+    def update_last_step(self, step_name):
+        """Update last executed step in workflow metadata"""
+        self.set_workflow_metadata('last_step', step_name)
+
+    def update_workflow_metadata(self, current_iteration=None, last_step=None):
+        """Update workflow metadata (current iteration and/or last step)"""
+        if current_iteration is not None:
+            self.update_current_iteration(current_iteration)
+        if last_step is not None:
+            self.update_last_step(last_step)
+
 
 def initialize_db(db_path: str):
     db_manager = DBManager(db_path, new_db=True)
     db_manager.create_iterations_table()
     db_manager.create_seen_titles_table()
     db_manager.create_conf_rank_table()
+    db_manager.create_workflow_metadata_table()
     return db_manager

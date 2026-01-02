@@ -30,7 +30,7 @@ from utils.article_search_method import (
 load_dotenv()
 with open("search_conf.json", "r") as f:
     search_conf = json.load(f)
-pg = get_proxy(search_conf["proxy_key"])
+#pg = get_proxy(search_conf["proxy_key"])
 
 def check_valid_venue(venue: str):
     return venue != "" and "arxiv" not in venue.lower() \
@@ -190,7 +190,7 @@ def get_bibtex_single(article: ArticleData, search_method: SearchMethod = Search
             return article.id, "NO_BIBTEX"
 
 
-    dblp_bibtex = _get_dblp_bibtex(article, search_method)
+    dblp_bibtex = _get_dblp_bibtex(article)
     if dblp_bibtex is not None and dblp_bibtex != "":
         return article.id, dblp_bibtex
     
@@ -209,7 +209,7 @@ def get_bibtex_single(article: ArticleData, search_method: SearchMethod = Search
         print("No bibtex found")
         return article.id, "NO_BIBTEX"
 
-def process_articles_batch(articles: List[ArticleData], max_workers: int = 3) -> List[Tuple[str, str]]:
+def process_articles_batch(articles: List[ArticleData], max_workers: int = 3, search_method: SearchMethod = SearchMethod.GOOGLE_SCHOLAR, delay: float = 1.0, cancel_flag=None) -> List[Tuple[str, str]]:
     """
     Process multiple articles in parallel.
     Returns list of (article_id, bibtex_string) tuples.
@@ -219,15 +219,23 @@ def process_articles_batch(articles: List[ArticleData], max_workers: int = 3) ->
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
         future_to_article = {
-            executor.submit(get_bibtex_single, article): article 
+            executor.submit(get_bibtex_single, article, search_method, delay): article 
             for article in articles
         }
         
         # Collect results as they complete
         for future in concurrent.futures.as_completed(future_to_article):
+            # Check for cancellation
+            if cancel_flag and cancel_flag.is_set():
+                # Cancel remaining futures
+                for f in future_to_article:
+                    f.cancel()
+                print("Batch processing cancelled.")
+                break
+            
             article = future_to_article[future]
             try:
-                result = future.result()
+                result = future.result(timeout=300)  # 5 minute timeout per article
                 # Ensure result is not None and is a tuple
                 if result is None:
                     result = (article.id, "")
@@ -235,7 +243,11 @@ def process_articles_batch(articles: List[ArticleData], max_workers: int = 3) ->
                     result = (article.id, "")
                 
                 results.append(result)
+            except concurrent.futures.TimeoutError:
+                print(f"Timeout processing article: {article.title}")
+                results.append((article.id, ""))
             except Exception as e:
+                print(f"Error processing article {article.id}: {e}")
                 results.append((article.id, ""))
     
     return results
@@ -252,9 +264,10 @@ def update_bibtex_info(iteration: int, results: List[Tuple[str, str, str]], db_m
     db_manager.update_batch_iteration_data(iteration, venue_updates)
     db_manager.update_batch_iteration_data(iteration, year_updates)
 
-def process_articles_optimized(iteration: int, articles: List[ArticleData], 
+def process_articles_optimized(iteration: int, articles: List[ArticleData], db_manager: DBManager,
                               batch_size: int = 10, max_workers: int = 3, 
-                              use_parallel: bool = True, search_method: SearchMethod = SearchMethod.GOOGLE_SCHOLAR, delay: float = 1.0) -> None:
+                              use_parallel: bool = True, search_method: SearchMethod = SearchMethod.GOOGLE_SCHOLAR, delay: float = 1.0,
+                              cancel_flag=None) -> None:
     """
     Optimized processing of articles with batch updates and optional parallel processing.
     """
@@ -271,22 +284,41 @@ def process_articles_optimized(iteration: int, articles: List[ArticleData],
         print(f"Using parallel processing with {max_workers} workers...")
         # Process in batches to avoid overwhelming the API
         for i in tqdm(range(0, len(articles_to_process), batch_size), desc="Getting bibtex for articles (parallel)"):
+            # Check for cancellation
+            if cancel_flag and cancel_flag.is_set():
+                print("Processing cancelled by user.")
+                return
+            
             batch = articles_to_process[i:i + batch_size]
             
-            results = process_articles_batch(batch, max_workers)
+            results = process_articles_batch(batch, max_workers, search_method, delay, cancel_flag)
+            
+            # Check again after batch processing
+            if cancel_flag and cancel_flag.is_set():
+                print("Processing cancelled by user.")
+                return
             
             if results is None:
                 print(f"Warning: process_articles_batch returned None for batch {i//batch_size + 1}")
                 results = []
             
-            update_data = [(article_id, bibtex, "bibtex") for article_id, bibtex in results]
-            db_manager.update_batch_iteration_data(iteration, update_data)
+            # Convert results to format expected by update_bibtex_info: (article_id, bibtex, dummy)
+            results_for_update = [(article_id, bibtex, "") for article_id, bibtex in results]
+            update_bibtex_info(iteration, results_for_update, db_manager)
             print(f"Batch {i//batch_size + 1} completed and saved to database.")
     else:
         print("Using sequential processing...")
         results = []
         desc = f"Getting bibtex for articles (sequential with batch size {batch_size})"
         for i, article in tqdm(enumerate(articles_to_process), desc=desc):
+            # Check for cancellation before processing each article
+            if cancel_flag and cancel_flag.is_set():
+                print("Processing cancelled by user.")
+                # Save any remaining results before exiting
+                if results:
+                    update_bibtex_info(iteration, results, db_manager)
+                return
+            
             article_id, bibtex = get_bibtex_single(article, search_method, delay_between_requests=delay)
             results.append((article_id, bibtex, "bibtex"))
             if len(results) >= batch_size or i == len(articles_to_process) - 1:
@@ -323,6 +355,7 @@ if __name__ == "__main__":
     process_articles_optimized(
         iteration=args.iteration,
         articles=articles,
+        db_manager=db_manager,
         batch_size=args.batch_size,
         max_workers=args.max_workers,
         use_parallel=args.parallel,
