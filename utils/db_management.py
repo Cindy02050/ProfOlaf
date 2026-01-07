@@ -103,7 +103,7 @@ class DBManager:
             raise ValueError(f"Database file does not exist: {db_path}")
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
-        
+
         # Ensure workflow metadata table exists for existing databases
         if not new_db:
             try:

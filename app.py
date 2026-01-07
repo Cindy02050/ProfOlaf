@@ -2436,9 +2436,73 @@ def skip_workflow_step():
         workflow_state = load_workflow_state()
         current_iteration = iteration if iteration is not None else workflow_state.get('current_iteration')
         
+        if current_iteration is None:
+            return jsonify({'error': 'Iteration is required'}), 400
+        
         # Get database path from config
         search_conf = load_search_conf()
         db_path = search_conf.get('db_path', 'database.db') if search_conf else 'database.db'
+        
+        # For filter steps, automatically approve all articles in the appropriate stage
+        db_manager = DBManager(db_path)
+        update_data = []
+        articles_updated = 0
+        
+        if step_name == 'Step 4: Filter by Metadata':
+            # Skip metadata filter: approve ALL articles in this iteration (set to METADATA_APPROVED)
+            # When skipping Step 4, we bypass all metadata filtering, so all articles are approved
+            articles = db_manager.get_iteration_data(iteration=current_iteration)
+            for article in articles:
+                # Check current selected status - only update if not already METADATA_APPROVED or higher
+                current_selected = getattr(article, 'selected', SelectionStage.NOT_SELECTED.value)
+                if current_selected is not None:
+                    try:
+                        current_selected = int(current_selected) if isinstance(current_selected, (str, int)) else SelectionStage.NOT_SELECTED.value
+                    except (ValueError, TypeError):
+                        current_selected = SelectionStage.NOT_SELECTED.value
+                else:
+                    current_selected = SelectionStage.NOT_SELECTED.value
+                
+                # Update to METADATA_APPROVED if not already at that stage or higher
+                if current_selected < SelectionStage.METADATA_APPROVED.value:
+                    update_data.append((article.id, SelectionStage.METADATA_APPROVED.value, "selected"))
+                    articles_updated += 1
+        
+        elif step_name == 'Step 5: Filter by Title':
+            # Skip title filter: approve all METADATA_APPROVED articles (set to TITLE_APPROVED)
+            # When skipping Step 5, we bypass title filtering, so all METADATA_APPROVED articles are approved
+            articles = db_manager.get_iteration_data(
+                iteration=current_iteration,
+                selected=SelectionStage.METADATA_APPROVED.value
+            )
+            for article in articles:
+                # Update to TITLE_APPROVED (even if previously filtered out, since we're skipping the step)
+                update_data.append((article.id, SelectionStage.TITLE_APPROVED.value, "selected"))
+                # Clear the title_filtered_out flag if it was set
+                if getattr(article, 'title_filtered_out', False):
+                    update_data.append((article.id, False, "title_filtered_out"))
+                articles_updated += 1
+        
+        elif step_name == 'Step 7: Filter by Content':
+            # Skip content filter: approve all TITLE_APPROVED articles (set to CONTENT_APPROVED)
+            # When skipping Step 7, we bypass content filtering, so all TITLE_APPROVED articles are approved
+            articles = db_manager.get_iteration_data(
+                iteration=current_iteration,
+                selected=SelectionStage.TITLE_APPROVED.value
+            )
+            for article in articles:
+                # Update to CONTENT_APPROVED (even if previously filtered out, since we're skipping the step)
+                update_data.append((article.id, SelectionStage.CONTENT_APPROVED.value, "selected"))
+                # Clear the abstract_filtered_out flag if it was set
+                if getattr(article, 'abstract_filtered_out', False):
+                    update_data.append((article.id, False, "abstract_filtered_out"))
+                articles_updated += 1
+        
+        # Apply bulk updates if any
+        if update_data:
+            db_manager.update_batch_iteration_data(current_iteration, update_data)
+        
+        db_manager.conn.close()
 
         update_workflow_state(
             db_path=db_path,
@@ -2450,9 +2514,14 @@ def skip_workflow_step():
         # Optionally get next step for reference (not used as last_step anymore)
         next_step = get_next_step_after_skip(step_name)
         
+        message = f'Step "{step_name}" has been skipped'
+        if articles_updated > 0:
+            message += f'. {articles_updated} article(s) automatically approved.'
+        
         return jsonify({
             'success': True,
-            'message': f'Step "{step_name}" has been skipped',
+            'message': message,
+            'articles_updated': articles_updated,
             'next_step': next_step,  # Optional reference for frontend
             'skipped_steps': load_workflow_state().get('skipped_steps', [])
         })

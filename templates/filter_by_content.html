@@ -81,6 +81,46 @@
             color: #495057;
             margin-bottom: 1rem;
         }
+        .article-url-section {
+            margin-top: 1rem;
+            padding: 1rem;
+            background-color: #e7f3ff;
+            border-radius: 0.5rem;
+            border: 1px solid #b3d9ff;
+            display: block !important;
+            visibility: visible !important;
+        }
+        .article-url-section a {
+            word-break: break-all;
+            color: #0066cc;
+            font-weight: 500;
+            text-decoration: underline;
+        }
+        .article-url-section a:hover {
+            color: #004499;
+        }
+        .pdf-viewer-container {
+            margin-top: 1.5rem;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            background-color: #f8f9fa;
+            min-height: 600px;
+            height: 600px;
+        }
+        .pdf-viewer-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .pdf-viewer-header {
+            padding: 0.75rem 1rem;
+            background-color: #f0f0f0;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
     </style>
 </head>
 <body>
@@ -200,7 +240,32 @@
                                                 <div id="articleVenue"></div>
                                                 <div id="articleYear"></div>
                                                 <div id="articleAuthors"></div>
-                                                <div id="articleUrl"></div>
+                                            </div>
+                                            
+                                            <!-- URL Section (more prominent) -->
+                                            <div class="article-url-section" id="articleUrlSection" style="display: none;">
+                                                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                    <div class="flex-grow-1">
+                                                        <strong><i class="fas fa-link"></i> Article URL:</strong>
+                                                        <div class="mt-2">
+                                                            <a href="#" id="articleUrlLink" target="_blank" rel="noopener noreferrer" class="text-break"></a>
+                                                        </div>
+                                                    </div>
+                                                    <button type="button" class="btn btn-sm btn-primary" id="togglePdfViewerBtn" style="display: none;">
+                                                        <i class="fas fa-file-pdf"></i> <span id="pdfToggleText">Show PDF</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- PDF Viewer Section -->
+                                            <div class="pdf-viewer-container" id="pdfViewerContainer" style="display: none;">
+                                                <div class="pdf-viewer-header">
+                                                    <span><i class="fas fa-file-pdf"></i> PDF Viewer</span>
+                                                    <button type="button" class="btn btn-sm btn-secondary" id="closePdfViewerBtn">
+                                                        <i class="fas fa-times"></i> Close
+                                                    </button>
+                                                </div>
+                                                <iframe id="pdfViewer" src="" title="PDF Viewer"></iframe>
                                             </div>
                                         </div>
                                     </div>
@@ -275,6 +340,8 @@
         let currentIteration = null;
         const annotationFields = {{ annotations | tojson }};
         let currentAnnotations = {};
+        let currentPdfUrl = '';
+        let currentPdfUrlRequiresNewWindow = false; // For URLs that can't be embedded (X-Frame-Options)
 
         document.getElementById('loadArticlesBtn').addEventListener('click', loadArticles);
         document.getElementById('approveBtn').addEventListener('click', () => handleDecision('approve'));
@@ -371,18 +438,118 @@
                 }
                 detailsHtml += `<div><strong>Authors:</strong> ${escapeHtml(authorsText)}</div>`;
             }
-            // Check both eprint_url and pub_url
-            if (article.eprint_url && article.eprint_url.trim()) {
-                detailsHtml += `<div><strong>URL:</strong> <a href="${escapeHtml(article.eprint_url)}" target="_blank">${escapeHtml(article.eprint_url)}</a></div>`;
-            } else if (article.pub_url && article.pub_url.trim()) {
-                detailsHtml += `<div><strong>URL:</strong> <a href="${escapeHtml(article.pub_url)}" target="_blank">${escapeHtml(article.pub_url)}</a></div>`;
-            }
             
             const venueEl = document.getElementById('articleVenue');
             if (venueEl) {
                 venueEl.innerHTML = detailsHtml;
                 venueEl.style.display = 'block';
                 venueEl.style.visibility = 'visible';
+            }
+            
+            // Handle URL display and PDF viewer
+            const urlSection = document.getElementById('articleUrlSection');
+            const urlLink = document.getElementById('articleUrlLink');
+            const togglePdfBtn = document.getElementById('togglePdfViewerBtn');
+            const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+            const pdfViewer = document.getElementById('pdfViewer');
+            
+            // Always reset PDF viewer and URL section first
+            if (pdfViewerContainer) {
+                pdfViewerContainer.style.display = 'none';
+            }
+            if (pdfViewer) {
+                pdfViewer.src = '';
+            }
+            if (urlSection) {
+                urlSection.style.display = 'none';
+            }
+            if (togglePdfBtn) {
+                togglePdfBtn.style.display = 'none';
+            }
+            if (urlLink) {
+                urlLink.href = '#';
+                urlLink.textContent = '';
+            }
+            // Reset the new window flag
+            currentPdfUrlRequiresNewWindow = false;
+            currentPdfUrl = '';
+            
+            if (!urlSection || !urlLink) {
+                console.error('URL section elements not found!');
+            }
+            
+            let articleUrl = '';
+            let pdfUrl = '';
+            
+            // Check both eprint_url and pub_url (handle empty strings and null/undefined)
+            const eprintUrl = (article.eprint_url && typeof article.eprint_url === 'string') ? article.eprint_url.trim() : '';
+            const pubUrl = (article.pub_url && typeof article.pub_url === 'string') ? article.pub_url.trim() : '';
+            
+            if (eprintUrl && eprintUrl.length > 0) {
+                articleUrl = eprintUrl;
+            } else if (pubUrl && pubUrl.length > 0) {
+                articleUrl = pubUrl;
+            }
+            
+            console.log('[displayArticle] Article URLs - eprint_url:', eprintUrl, 'pub_url:', pubUrl, 'final articleUrl:', articleUrl);
+            console.log('[displayArticle] Full article object:', article);
+            
+            if (articleUrl && articleUrl.length > 0) {
+                if (urlSection && urlLink) {
+                    console.log('[displayArticle] Setting URL section - original URL:', articleUrl);
+                    // Show URL section
+                    urlSection.style.display = 'block';
+                    urlSection.style.visibility = 'visible';
+                    urlLink.href = articleUrl;
+                    urlLink.textContent = articleUrl;
+                    console.log('[displayArticle] URL section displayed, link href:', urlLink.href, 'link text:', urlLink.textContent);
+                    
+                    // Convert URL to PDF format if possible
+                    console.log('[displayArticle] Calling convertToPdfUrl with:', articleUrl);
+                    
+                    // Check if it's a Semantic Scholar URL before conversion
+                    const isSemanticScholar = articleUrl.includes('semanticscholar.org');
+                    if (isSemanticScholar) {
+                        currentPdfUrlRequiresNewWindow = true;
+                        console.log('[displayArticle] Semantic Scholar URL detected - will open in new window');
+                    }
+                    
+                    pdfUrl = convertToPdfUrl(articleUrl);
+                    console.log('[displayArticle] convertToPdfUrl returned:', pdfUrl);
+                    
+                    if (pdfUrl && togglePdfBtn) {
+                        // Show PDF toggle button
+                        console.log('[displayArticle] Showing PDF button with PDF URL:', pdfUrl);
+                        console.log('[displayArticle] PDF URL requires new window:', currentPdfUrlRequiresNewWindow);
+                        togglePdfBtn.style.display = 'inline-block';
+                        togglePdfBtn.style.visibility = 'visible';
+                        currentPdfUrl = pdfUrl;
+                        // Update button text if it requires new window
+                        const pdfToggleText = document.getElementById('pdfToggleText');
+                        if (pdfToggleText) {
+                            if (currentPdfUrlRequiresNewWindow) {
+                                pdfToggleText.textContent = 'Open PDF';
+                            } else {
+                                pdfToggleText.textContent = 'Show PDF';
+                            }
+                        }
+                        console.log('[displayArticle] currentPdfUrl set to:', currentPdfUrl);
+                    } else {
+                        currentPdfUrlRequiresNewWindow = false;
+                        console.log('[displayArticle] No PDF URL or button element. pdfUrl:', pdfUrl, 'togglePdfBtn:', togglePdfBtn);
+                        if (togglePdfBtn) {
+                            togglePdfBtn.style.display = 'none';
+                            console.log('[displayArticle] Hiding PDF button');
+                        }
+                        currentPdfUrl = '';
+                    }
+                } else {
+                    console.error('[displayArticle] URL section elements not found!', {urlSection, urlLink});
+                }
+            } else {
+                // No URL found - section is already hidden and cleared above
+                console.log('[displayArticle] No article URL found. URL section already hidden.');
+                console.log('[displayArticle] eprint_url:', eprintUrl, 'pub_url:', pubUrl);
             }
             
             // Ensure article-info is visible
@@ -405,6 +572,14 @@
             
             // Hide save alert
             document.getElementById('saveAlert').style.display = 'none';
+            
+            // Close PDF viewer if open (will reopen if user clicks the button)
+            const pdfToggleText = document.getElementById('pdfToggleText');
+            if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
+                pdfViewerContainer.style.display = 'none';
+                if (pdfViewer) pdfViewer.src = '';
+                if (pdfToggleText) pdfToggleText.textContent = 'Show PDF';
+            }
         }
 
         function updateAnnotationsFields() {
@@ -583,6 +758,151 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // Convert URL to PDF format for viewing
+        function convertToPdfUrl(url) {
+            console.log('[convertToPdfUrl] Called with URL:', url);
+            if (!url) {
+                console.log('[convertToPdfUrl] No URL provided, returning null');
+                return null;
+            }
+            
+            try {
+                const urlObj = new URL(url);
+                console.log('[convertToPdfUrl] Parsed URL:', {
+                    hostname: urlObj.hostname,
+                    pathname: urlObj.pathname,
+                    fullUrl: url
+                });
+                
+                // Handle arXiv URLs
+                if (urlObj.hostname.includes('arxiv.org')) {
+                    console.log('[convertToPdfUrl] Detected arXiv URL');
+                    // Convert /abs/ or /html/ to /pdf/
+                    if (urlObj.pathname.startsWith('/abs/')) {
+                        const pdfUrl = url.replace('/abs/', '/pdf/') + '.pdf';
+                        console.log('[convertToPdfUrl] Converted arXiv /abs/ to PDF:', pdfUrl);
+                        return pdfUrl;
+                    } else if (urlObj.pathname.startsWith('/html/')) {
+                        const pdfUrl = url.replace('/html/', '/pdf/') + '.pdf';
+                        console.log('[convertToPdfUrl] Converted arXiv /html/ to PDF:', pdfUrl);
+                        return pdfUrl;
+                    } else if (urlObj.pathname.startsWith('/pdf/')) {
+                        // Already a PDF URL
+                        let pdfUrl = url;
+                        if (!urlObj.pathname.endsWith('.pdf')) {
+                            pdfUrl = url + '.pdf';
+                        }
+                        console.log('[convertToPdfUrl] Already arXiv PDF URL, returning:', pdfUrl);
+                        return pdfUrl;
+                    }
+                }
+                
+                // Handle Semantic Scholar URLs
+                // Note: Semantic Scholar has X-Frame-Options that prevents iframe embedding
+                // The calling code will detect this and open in a new window instead
+                if (urlObj.hostname.includes('semanticscholar.org')) {
+                    console.log('[convertToPdfUrl] Detected Semantic Scholar URL');
+                    console.log('[convertToPdfUrl] Pathname:', urlObj.pathname);
+                    // Replace "paper" with "reader" to access PDF directly
+                    if (urlObj.pathname.includes('/paper/')) {
+                        const pdfUrl = url.replace('/paper/', '/reader/');
+                        console.log('[convertToPdfUrl] Converted Semantic Scholar /paper/ to /reader/:', pdfUrl);
+                        return pdfUrl;
+                    }
+                    // If already using reader or pdf, return as is
+                    if (urlObj.pathname.includes('/reader/') || urlObj.pathname.includes('/pdf/')) {
+                        console.log('[convertToPdfUrl] Already Semantic Scholar reader/PDF URL, returning as-is');
+                        return url;
+                    }
+                    console.log('[convertToPdfUrl] Semantic Scholar URL but no /paper/ found in pathname');
+                }
+                
+                // If URL already ends with .pdf, return as is
+                if (url.toLowerCase().endsWith('.pdf')) {
+                    console.log('[convertToPdfUrl] URL already ends with .pdf, returning as-is');
+                    return url;
+                }
+                
+                // For other URLs, try appending .pdf (might work for some sites)
+                // But only if it doesn't already have an extension
+                if (!url.match(/\.[a-z]{2,4}$/i)) {
+                    const pdfUrl = url + '.pdf';
+                    console.log('[convertToPdfUrl] No extension found, trying to append .pdf:', pdfUrl);
+                    return pdfUrl;
+                }
+                
+                // Use Google Docs viewer or Mozilla PDF.js viewer for other PDFs
+                // First check if URL points to a PDF
+                console.log('[convertToPdfUrl] No conversion found, returning null');
+                return null;
+            } catch (e) {
+                // Invalid URL, return null
+                console.error('[convertToPdfUrl] Error parsing URL:', e);
+                return null;
+            }
+        }
+
+        // PDF Viewer Toggle Button - use different variable names to avoid conflicts
+        const togglePdfBtnEl = document.getElementById('togglePdfViewerBtn');
+        if (togglePdfBtnEl) {
+            togglePdfBtnEl.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                console.log('[PDF Button] Clicked. currentPdfUrl:', currentPdfUrl);
+                console.log('[PDF Button] currentPdfUrlRequiresNewWindow:', currentPdfUrlRequiresNewWindow);
+                
+                // If URL requires new window (e.g., Semantic Scholar with X-Frame-Options), open in new tab
+                if (currentPdfUrlRequiresNewWindow && currentPdfUrl) {
+                    console.log('[PDF Button] Opening PDF in new window:', currentPdfUrl);
+                    const newWindow = window.open(currentPdfUrl, '_blank', 'noopener,noreferrer');
+                    if (!newWindow) {
+                        console.error('[PDF Button] Popup blocked. Please allow popups for this site.');
+                        alert('Please allow popups for this site to open the PDF in a new tab.');
+                    }
+                    return false;
+                }
+                
+                const containerEl = document.getElementById('pdfViewerContainer');
+                const viewerEl = document.getElementById('pdfViewer');
+                const toggleTextEl = document.getElementById('pdfToggleText');
+                
+                if (containerEl && viewerEl && toggleTextEl) {
+                    if (containerEl.style.display === 'none' || containerEl.style.display === '') {
+                        // Show PDF viewer
+                        if (currentPdfUrl) {
+                            console.log('[PDF Button] Loading PDF in iframe:', currentPdfUrl);
+                            viewerEl.src = currentPdfUrl;
+                            containerEl.style.display = 'block';
+                            toggleTextEl.textContent = 'Hide PDF';
+                        }
+                    } else {
+                        // Hide PDF viewer
+                        containerEl.style.display = 'none';
+                        viewerEl.src = '';
+                        toggleTextEl.textContent = 'Show PDF';
+                    }
+                }
+                return false;
+            });
+        }
+
+        // Close PDF Viewer Button
+        const closePdfBtnEl = document.getElementById('closePdfViewerBtn');
+        if (closePdfBtnEl) {
+            closePdfBtnEl.addEventListener('click', function() {
+                const containerEl = document.getElementById('pdfViewerContainer');
+                const viewerEl = document.getElementById('pdfViewer');
+                const toggleTextEl = document.getElementById('pdfToggleText');
+                
+                if (containerEl && viewerEl && toggleTextEl) {
+                    containerEl.style.display = 'none';
+                    viewerEl.src = '';
+                    toggleTextEl.textContent = 'Show PDF';
+                }
+            });
         }
 
         // Skip step button
