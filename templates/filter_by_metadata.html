@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 4: Filter by Metadata - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .article-card {
+            margin-bottom: 2rem;
+        }
+        .check-item {
+            padding: 1rem;
+            margin: 0.5rem 0;
+            border: 2px solid #dee2e6;
+            border-radius: 0.5rem;
+            background-color: #f8f9fa;
+        }
+        .check-item.passed {
+            border-color: #28a745;
+            background-color: #d4edda;
+        }
+        .check-item.failed {
+            border-color: #dc3545;
+            background-color: #f8d7da;
+        }
+        .check-item.pending {
+            border-color: #ffc107;
+            background-color: #fff3cd;
+        }
+        .check-buttons {
+            margin-top: 0.5rem;
+        }
+        .article-info {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .article-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4 mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-11">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h2 class="mb-0">
+                            <i class="fas fa-filter"></i> Step 4: Filter by Metadata
+                        </h2>
+                        <a href="{{ url_for('workflow_stage') }}" class="btn btn-light btn-sm">
+                            <i class="fas fa-arrow-left"></i> Back to Workflow
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        <!-- Workflow Information Cards -->
+                        <div class="row mb-4">
+                            <div class="col-md-3">
+                                <div class="card bg-primary text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info and workflow_info.current_iteration is not none %}
+                                                {{ workflow_info.current_iteration }}
+                                            {% else %}
+                                                N/A
+                                            {% endif %}
+                                        </h3>
+                                        <small>Current Iteration</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-info text-white">
+                                    <div class="card-body text-center">
+                                        <h5 class="mb-0" style="font-size: 1.1rem;">
+                                            {% if workflow_info and workflow_info.current_step %}
+                                                {{ workflow_info.current_step }}
+                                            {% else %}
+                                                Step 0: Generate Snowball Start
+                                            {% endif %}
+                                        </h5>
+                                        <small>Current Step</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-warning text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info %}
+                                                {{ workflow_info.new_articles_count or 0 }}
+                                            {% else %}
+                                                0
+                                            {% endif %}
+                                        </h3>
+                                        <small>New Articles (Current Iteration)</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-success text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info %}
+                                                {{ workflow_info.content_approved_count or 0 }}
+                                            {% else %}
+                                                0
+                                            {% endif %}
+                                        </h3>
+                                        <small>Content Approved Papers</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {% if venue_filter_disabled %}
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            <strong>Note:</strong> The venue/peer-review filter is disabled because 
+                            {% if bibtex_skipped and conf_rank_skipped %}
+                            both Step 2 (Get BibTeX) and Step 3 (Assign Venue Ranks) were skipped.
+                            {% elif bibtex_skipped %}
+                            Step 2 (Get BibTeX) was skipped.
+                            {% elif conf_rank_skipped %}
+                            Step 3 (Assign Venue Ranks) was skipped.
+                            {% endif %}
+                            You can still filter by year, language, and download availability.
+                        </div>
+                        {% else %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> 
+                            This step filters articles based on metadata: venue/peer-review status, publication year, language, and download availability. Articles that pass all checks will be approved for the next stage.
+                        </div>
+                        {% endif %}
+
+                        <!-- Initial Setup -->
+                        <div id="setupSection">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="iteration" class="form-label">
+                                        <i class="fas fa-list-ol"></i> Iteration <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="number" class="form-control" id="iteration" name="iteration" 
+                                           value="{{ default_iteration }}" min="0" required>
+                                    <div class="form-text">Iteration number to filter articles from</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Filter Options -->
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-cog"></i> Filter Options</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p class="text-muted mb-3">Select which metadata filters to apply:</p>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" id="enableVenueCheck" {% if not venue_filter_disabled %}checked{% else %}disabled{% endif %}>
+                                                <label class="form-check-label" for="enableVenueCheck" {% if venue_filter_disabled %}style="opacity: 0.6;"{% endif %}>
+                                                    <strong><i class="fas fa-building"></i> Venue & Peer-Review</strong>
+                                                    <br><small class="text-muted">
+                                                        {% if venue_filter_disabled %}
+                                                        <span class="text-danger">Disabled (BibTeX or Conf Rank step was skipped)</span>
+                                                        {% else %}
+                                                        Filter by venue rank and peer-review status
+                                                        {% endif %}
+                                                    </small>
+                                                </label>
+                                            </div>
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" id="enableYearCheck" checked>
+                                                <label class="form-check-label" for="enableYearCheck">
+                                                    <strong><i class="fas fa-calendar"></i> Publication Year</strong>
+                                                    <br><small class="text-muted">Filter by publication year ({{ start_year }} - {{ end_year }})</small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" id="enableLanguageCheck" checked>
+                                                <label class="form-check-label" for="enableLanguageCheck">
+                                                    <strong><i class="fas fa-language"></i> Language</strong>
+                                                    <br><small class="text-muted">Filter by language (English only)</small>
+                                                </label>
+                                            </div>
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" id="enableDownloadCheck" checked>
+                                                <label class="form-check-label" for="enableDownloadCheck">
+                                                    <strong><i class="fas fa-download"></i> Download Availability</strong>
+                                                    <br><small class="text-muted">Filter by download availability</small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-primary btn-lg" id="loadArticlesBtn">
+                                    <i class="fas fa-search"></i> Load Articles
+                                </button>
+                                <button type="button" class="btn btn-warning btn-lg" id="skipBtn">
+                                    <i class="fas fa-forward"></i> Skip Step
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Progress Indicator -->
+                        <div id="progressSection" class="mt-4" style="display: none;">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5>Progress</h5>
+                                    <div class="progress mb-2" style="height: 30px;">
+                                        <div class="progress-bar" role="progressbar" id="progressBar" style="width: 0%">
+                                            <span id="progressText">0 / 0</span>
+                                        </div>
+                                    </div>
+                                    <p class="text-muted mb-0">
+                                        <span id="autoProcessedCount">0</span> auto-processed, 
+                                        <span id="manualProcessedCount">0</span> manually processed,
+                                        <span id="remainingCount">0</span> remaining out of 
+                                        <span id="totalArticlesCount">0</span> total
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Article Filtering Interface -->
+                        <div id="articleSection" style="display: none;">
+                            <div class="card article-card">
+                                <div class="card-header bg-secondary text-white">
+                                    <h4 class="mb-0">
+                                        <i class="fas fa-file-alt"></i> Article <span id="articleNumber">1</span> of <span id="totalArticles">0</span>
+                                    </h4>
+                                </div>
+                                <div class="card-body">
+                                    <!-- Article Information -->
+                                    <div class="article-info">
+                                        <div class="article-title" id="articleTitle">Loading...</div>
+                                        <div class="mb-2">
+                                            <strong>Venue:</strong> <span id="articleVenue">-</span>
+                                        </div>
+                                        <div class="mb-2">
+                                            <strong>Year:</strong> <span id="articleYear">-</span>
+                                        </div>
+                                        <div class="mb-2">
+                                            <strong>URL:</strong> 
+                                            <a href="#" id="articleUrl" target="_blank" style="display: none;">View Paper</a>
+                                            <span id="articleUrlText" class="text-muted">Not available</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Filter Checks -->
+                                    <h5 class="mt-4 mb-3"><i class="fas fa-check-circle"></i> Filter Checks</h5>
+                                    
+                                    <!-- Venue & Peer-Review Check -->
+                                    <div class="check-item" id="venueCheck">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <strong><i class="fas fa-building"></i> Venue & Peer-Review</strong>
+                                                <p class="mb-0 small text-muted">Must be peer-reviewed and in ranks: {{ venue_rank_list|join(', ') }}</p>
+                                            </div>
+                                            <div id="venueCheckStatus">
+                                                <span class="badge bg-secondary">Pending</span>
+                                            </div>
+                                        </div>
+                                        <div class="check-buttons" id="venueCheckButtons" style="display: none;">
+                                            <button class="btn btn-sm btn-success" onclick="setVenueCheck(true)">
+                                                <i class="fas fa-check"></i> Pass
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" onclick="setVenueCheck(false)">
+                                                <i class="fas fa-times"></i> Fail
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Year Check -->
+                                    <div class="check-item" id="yearCheck">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <strong><i class="fas fa-calendar"></i> Publication Year</strong>
+                                                <p class="mb-0 small text-muted">Must be between {{ start_year }} and {{ end_year }}</p>
+                                            </div>
+                                            <div id="yearCheckStatus">
+                                                <span class="badge bg-secondary">Pending</span>
+                                            </div>
+                                        </div>
+                                        <div class="check-buttons" id="yearCheckButtons" style="display: none;">
+                                            <button class="btn btn-sm btn-success" onclick="setYearCheck(true)">
+                                                <i class="fas fa-check"></i> Pass
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" onclick="setYearCheck(false)">
+                                                <i class="fas fa-times"></i> Fail
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Language Check -->
+                                    <div class="check-item" id="languageCheck">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <strong><i class="fas fa-language"></i> Language</strong>
+                                                <p class="mb-0 small text-muted">Must be in English</p>
+                                            </div>
+                                            <div id="languageCheckStatus">
+                                                <span class="badge bg-secondary">Pending</span>
+                                            </div>
+                                        </div>
+                                        <div class="check-buttons" id="languageCheckButtons" style="display: none;">
+                                            <button class="btn btn-sm btn-success" onclick="setLanguageCheck(true)">
+                                                <i class="fas fa-check"></i> Pass
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" onclick="setLanguageCheck(false)">
+                                                <i class="fas fa-times"></i> Fail
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Download Check -->
+                                    <div class="check-item" id="downloadCheck">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <strong><i class="fas fa-download"></i> Download Availability</strong>
+                                                <p class="mb-0 small text-muted">Must be available for download</p>
+                                            </div>
+                                            <div id="downloadCheckStatus">
+                                                <span class="badge bg-secondary">Pending</span>
+                                            </div>
+                                        </div>
+                                        <div class="check-buttons" id="downloadCheckButtons" style="display: none;">
+                                            <button class="btn btn-sm btn-success" onclick="setDownloadCheck(true)">
+                                                <i class="fas fa-check"></i> Pass
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" onclick="setDownloadCheck(false)">
+                                                <i class="fas fa-times"></i> Fail
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Final Action -->
+                                    <div class="alert alert-warning mt-3" id="actionWarning" style="display: none;">
+                                        Please complete all filter checks before proceeding.
+                                    </div>
+
+                                    <!-- Navigation Buttons -->
+                                    <div class="d-flex justify-content-between mt-4">
+                                        <button type="button" class="btn btn-secondary" id="prevArticleBtn" disabled>
+                                            <i class="fas fa-arrow-left"></i> Previous
+                                        </button>
+                                        <button type="button" class="btn btn-primary" id="saveAndNextBtn" disabled>
+                                            <i class="fas fa-save"></i> Save & Next
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Completion Message -->
+                        <div id="completionSection" class="alert alert-success" style="display: none;">
+                            <h4><i class="fas fa-check-circle"></i> All articles have been processed!</h4>
+                            <p>All articles have been filtered by metadata. You can now proceed to the next step in the workflow.</p>
+                            <a href="{{ url_for('workflow_stage') }}" class="btn btn-success">
+                                <i class="fas fa-arrow-left"></i> Back to Workflow
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let articles = [];
+        let currentArticleIndex = -1;
+        let currentArticle = null;
+        let checkResults = {
+            venue: null,
+            year: null,
+            language: null,
+            download: null
+        };
+        let filterOptions = {
+            enableVenueCheck: {% if not venue_filter_disabled %}true{% else %}false{% endif %},
+            enableYearCheck: true,
+            enableLanguageCheck: true,
+            enableDownloadCheck: true
+        };
+
+        const loadArticlesBtn = document.getElementById('loadArticlesBtn');
+        const setupSection = document.getElementById('setupSection');
+        const progressSection = document.getElementById('progressSection');
+        const articleSection = document.getElementById('articleSection');
+        const completionSection = document.getElementById('completionSection');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const autoProcessedCount = document.getElementById('autoProcessedCount');
+        const manualProcessedCount = document.getElementById('manualProcessedCount');
+        const remainingCount = document.getElementById('remainingCount');
+        const totalArticlesCount = document.getElementById('totalArticlesCount');
+        const prevArticleBtn = document.getElementById('prevArticleBtn');
+        const saveAndNextBtn = document.getElementById('saveAndNextBtn');
+        
+        let allArticles = []; // All articles loaded from server
+        let articlesNeedingInput = []; // Articles that need user input
+        let autoProcessed = 0; // Count of auto-processed articles
+        let manualProcessed = 0; // Count of manually processed articles
+        let totalArticles = 0; // Total articles to process
+
+        loadArticlesBtn.addEventListener('click', function() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            
+            if (isNaN(iteration) || iteration < 0) {
+                alert('Please enter a valid iteration number');
+                return;
+            }
+
+            // Get filter options (respect disabled state for venue check)
+            const venueCheckbox = document.getElementById('enableVenueCheck');
+            filterOptions = {
+                enableVenueCheck: venueCheckbox.disabled ? false : venueCheckbox.checked,
+                enableYearCheck: document.getElementById('enableYearCheck').checked,
+                enableLanguageCheck: document.getElementById('enableLanguageCheck').checked,
+                enableDownloadCheck: document.getElementById('enableDownloadCheck').checked
+            };
+
+            loadArticlesBtn.disabled = true;
+            loadArticlesBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Loading...';
+
+            fetch(`/api/workflow/filter_by_metadata/articles?iteration=${iteration}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        loadArticlesBtn.disabled = false;
+                        loadArticlesBtn.innerHTML = '<i class="fas fa-search"></i> Load Articles';
+                        return;
+                    }
+
+                    allArticles = data.articles;
+                    totalArticles = allArticles.length;
+                    
+                    // Update filter options based on skipped steps (from backend)
+                    if (data.venue_filter_disabled) {
+                        filterOptions.enableVenueCheck = false;
+                        const venueCheckbox = document.getElementById('enableVenueCheck');
+                        venueCheckbox.checked = false;
+                        venueCheckbox.disabled = true;
+                    }
+                    
+                    if (allArticles.length === 0) {
+                        alert('No articles found for this iteration that need metadata filtering. Current iteration is: ' + iteration);
+                        loadArticlesBtn.disabled = false;
+                        loadArticlesBtn.innerHTML = '<i class="fas fa-search"></i> Load Articles';
+                        return;
+                    }
+
+                    // Initialize counters
+                    autoProcessed = 0;
+                    manualProcessed = 0;
+                    articlesNeedingInput = [];
+                    articles = []; // Will be populated with articles needing input
+                    
+                    setupSection.style.display = 'none';
+                    progressSection.style.display = 'block';
+                    totalArticlesCount.textContent = totalArticles;
+                    updateProgress();
+                    
+                    // Evaluate all articles and auto-process those that don't need user input
+                    // Store venue_filter_disabled in a variable accessible to processArticlesAutomatically
+                    const venueFilterDisabled = data.venue_filter_disabled || false;
+                    processArticlesAutomatically(venueFilterDisabled);
+                })
+                .catch(error => {
+                    alert('Error: ' + error.message);
+                    loadArticlesBtn.disabled = false;
+                    loadArticlesBtn.innerHTML = '<i class="fas fa-search"></i> Load Articles';
+                });
+        });
+
+        function processArticlesAutomatically(venueFilterDisabled) {
+            // Process articles in batches to avoid overwhelming the server
+            let index = 0;
+            
+            function processNext() {
+                if (index >= allArticles.length) {
+                    // All articles evaluated
+                    articles = articlesNeedingInput;
+                    if (articles.length > 0) {
+                        currentArticleIndex = 0;
+                        articleSection.style.display = 'block';
+                        loadCurrentArticle();
+                    } else {
+                        // All articles were auto-processed
+                        articleSection.style.display = 'none';
+                        completionSection.style.display = 'block';
+                    }
+                    loadArticlesBtn.disabled = false;
+                    loadArticlesBtn.innerHTML = '<i class="fas fa-search"></i> Load Articles';
+                    return;
+                }
+                
+                const article = allArticles[index];
+                
+                // Evaluate article
+                fetch('/api/workflow/filter_by_metadata/evaluate_article', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        article: article,
+                        iteration: parseInt(document.getElementById('iteration').value),
+                        filter_options: {
+                            enableVenueCheck: filterOptions.enableVenueCheck,
+                            enableYearCheck: filterOptions.enableYearCheck,
+                            enableLanguageCheck: filterOptions.enableLanguageCheck,
+                            enableDownloadCheck: filterOptions.enableDownloadCheck,
+                            venue_filter_disabled: venueFilterDisabled
+                        }
+                    })
+                })
+                .then(response => response.json())
+                .then(evalData => {
+                    if (evalData.error) {
+                        console.error('Error evaluating article:', evalData.error);
+                        // Treat as needing input if evaluation fails
+                        articlesNeedingInput.push(article);
+                    } else if (evalData.skip) {
+                        // Article skipped (no ID) - count as auto-processed
+                        console.log('Article skipped: no ID available', article);
+                        autoProcessed++;
+                    } else if (evalData.filter_result) {
+                        // A filter failed (or all passed) - auto-process immediately
+                        // This happens when venue/year/language/download check fails,
+                        // even if other checks needed user input - we skip those since article is already filtered
+                        saveArticleResult(article.id, evalData.filter_result, false);
+                        autoProcessed++;
+                    } else if (evalData.needs_user_input) {
+                        // Article needs user input (no filter failed, but some checks need verification)
+                        articlesNeedingInput.push(article);
+                    } else {
+                        // All checks passed - auto-process the article
+                        saveArticleResult(article.id, evalData.filter_result || 'approved', false);
+                        autoProcessed++;
+                    }
+                    
+                    index++;
+                    updateProgress();
+                    processNext();
+                })
+                .catch(error => {
+                    console.error('Error evaluating article:', error);
+                    // Treat as needing input if evaluation fails
+                    articlesNeedingInput.push(article);
+                    index++;
+                    updateProgress();
+                    processNext();
+                });
+            }
+            
+            processNext();
+        }
+        
+        function updateProgress() {
+            const totalProcessed = autoProcessed + manualProcessed;
+            const remaining = totalArticles - totalProcessed;
+            const progressPercent = totalArticles > 0 ? (totalProcessed / totalArticles) * 100 : 0;
+            
+            progressBar.style.width = progressPercent + '%';
+            progressText.textContent = `${totalProcessed} / ${totalArticles}`;
+            autoProcessedCount.textContent = autoProcessed;
+            manualProcessedCount.textContent = manualProcessed;
+            remainingCount.textContent = remaining;
+        }
+        
+        function saveArticleResult(articleId, filterResult, updateProgressFlag = true) {
+            // Skip if no article ID
+            if (!articleId) {
+                console.log('Skipping article: no ID available');
+                if (updateProgressFlag) {
+                    manualProcessed++;
+                    updateProgress();
+                }
+                return;
+            }
+            
+            const iteration = parseInt(document.getElementById('iteration').value);
+            
+            fetch('/api/workflow/filter_by_metadata/save_result', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    article_id: articleId,
+                    filter_result: filterResult,
+                    iteration: iteration
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Error saving article result:', data.error);
+                } else if (data.skipped) {
+                    console.log('Article skipped: no ID available');
+                } else if (updateProgressFlag) {
+                    manualProcessed++;
+                    updateProgress();
+                }
+            })
+            .catch(error => {
+                console.error('Error saving article result:', error);
+            });
+        }
+        
+        function loadCurrentArticle() {
+            if (currentArticleIndex < 0 || currentArticleIndex >= articles.length) {
+                // All articles processed
+                articleSection.style.display = 'none';
+                completionSection.style.display = 'block';
+                return;
+            }
+
+            currentArticle = articles[currentArticleIndex];
+            
+            // Update article info
+            document.getElementById('articleNumber').textContent = currentArticleIndex + 1;
+            document.getElementById('totalArticles').textContent = articles.length;
+            document.getElementById('articleTitle').textContent = currentArticle.title || 'No title';
+            document.getElementById('articleVenue').textContent = currentArticle.venue || 'Not specified';
+            document.getElementById('articleYear').textContent = currentArticle.pub_year || 'Not specified';
+            
+            // Update URL
+            const urlLink = document.getElementById('articleUrl');
+            const urlText = document.getElementById('articleUrlText');
+            if (currentArticle.eprint_url && currentArticle.eprint_url.trim()) {
+                urlLink.href = currentArticle.eprint_url;
+                urlLink.style.display = 'inline';
+                urlText.style.display = 'none';
+            } else {
+                urlLink.style.display = 'none';
+                urlText.style.display = 'inline';
+            }
+
+            // Reset check results
+            checkResults = {
+                venue: null,
+                year: null,
+                language: null,
+                download: null
+            };
+
+            // Progress is updated by updateProgress() function
+
+            // Update navigation buttons
+            prevArticleBtn.disabled = currentArticleIndex === 0;
+            saveAndNextBtn.disabled = true;
+
+            // Run all checks
+            runAllChecks();
+        }
+
+        function runAllChecks() {
+            // Reset UI
+            resetCheckUI('venueCheck');
+            resetCheckUI('yearCheck');
+            resetCheckUI('languageCheck');
+            resetCheckUI('downloadCheck');
+
+            // Hide/show checks based on options
+            const venueCheckDiv = document.getElementById('venueCheck');
+            const yearCheckDiv = document.getElementById('yearCheck');
+            const languageCheckDiv = document.getElementById('languageCheck');
+            const downloadCheckDiv = document.getElementById('downloadCheck');
+            
+            venueCheckDiv.style.display = filterOptions.enableVenueCheck ? 'block' : 'none';
+            yearCheckDiv.style.display = filterOptions.enableYearCheck ? 'block' : 'none';
+            languageCheckDiv.style.display = filterOptions.enableLanguageCheck ? 'block' : 'none';
+            downloadCheckDiv.style.display = filterOptions.enableDownloadCheck ? 'block' : 'none';
+
+            // If a check is disabled, automatically set it to passed
+            if (!filterOptions.enableVenueCheck) {
+                checkResults.venue = true;
+                document.getElementById('venueCheck').className = 'check-item passed';
+                document.getElementById('venueCheckStatus').innerHTML = '<span class="badge bg-secondary"><i class="fas fa-ban"></i> Disabled</span>';
+            }
+            if (!filterOptions.enableYearCheck) {
+                checkResults.year = true;
+                document.getElementById('yearCheck').className = 'check-item passed';
+                document.getElementById('yearCheckStatus').innerHTML = '<span class="badge bg-secondary"><i class="fas fa-ban"></i> Disabled</span>';
+            }
+            if (!filterOptions.enableLanguageCheck) {
+                checkResults.language = true;
+                document.getElementById('languageCheck').className = 'check-item passed';
+                document.getElementById('languageCheckStatus').innerHTML = '<span class="badge bg-secondary"><i class="fas fa-ban"></i> Disabled</span>';
+            }
+            if (!filterOptions.enableDownloadCheck) {
+                checkResults.download = true;
+                document.getElementById('downloadCheck').className = 'check-item passed';
+                document.getElementById('downloadCheckStatus').innerHTML = '<span class="badge bg-secondary"><i class="fas fa-ban"></i> Disabled</span>';
+            }
+
+            // Run enabled checks in parallel
+            const checks = [];
+            if (filterOptions.enableVenueCheck) checks.push(checkVenue());
+            if (filterOptions.enableYearCheck) checks.push(checkYear());
+            if (filterOptions.enableLanguageCheck) checks.push(checkLanguage());
+            if (filterOptions.enableDownloadCheck) checks.push(checkDownload());
+
+            Promise.all(checks).then(() => {
+                updateSaveButton();
+            });
+        }
+
+        function resetCheckUI(checkId) {
+            const checkDiv = document.getElementById(checkId);
+            const statusDiv = document.getElementById(checkId.replace('Check', 'CheckStatus'));
+            const buttonsDiv = document.getElementById(checkId.replace('Check', 'CheckButtons'));
+            
+            checkDiv.className = 'check-item';
+            statusDiv.innerHTML = '<span class="badge bg-secondary">Pending</span>';
+            buttonsDiv.style.display = 'none';
+        }
+
+        function checkVenue() {
+            return fetch('/api/workflow/filter_by_metadata/check_venue', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    article_id: currentArticle.id,
+                    bibtex: currentArticle.bibtex
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Venue check error:', data.error);
+                    return;
+                }
+                
+                const checkDiv = document.getElementById('venueCheck');
+                const statusDiv = document.getElementById('venueCheckStatus');
+                const buttonsDiv = document.getElementById('venueCheckButtons');
+                
+                if (data.automated_result === true) {
+                    checkResults.venue = true;
+                    checkDiv.className = 'check-item passed';
+                    statusDiv.innerHTML = '<span class="badge bg-success"><i class="fas fa-check"></i> Passed</span>';
+                } else if (data.automated_result === false) {
+                    checkResults.venue = false;
+                    checkDiv.className = 'check-item failed';
+                    statusDiv.innerHTML = '<span class="badge bg-danger"><i class="fas fa-times"></i> Failed</span>';
+                } else {
+                    // Needs user input
+                    checkDiv.className = 'check-item pending';
+                    statusDiv.innerHTML = '<span class="badge bg-warning">Needs Review</span>';
+                    buttonsDiv.style.display = 'block';
+                }
+            });
+        }
+
+        function checkYear() {
+            return fetch('/api/workflow/filter_by_metadata/check_year', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    pub_year: currentArticle.pub_year || ''
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Year check error:', data.error);
+                    return;
+                }
+                
+                const checkDiv = document.getElementById('yearCheck');
+                const statusDiv = document.getElementById('yearCheckStatus');
+                const buttonsDiv = document.getElementById('yearCheckButtons');
+                
+                if (data.is_valid === true) {
+                    checkResults.year = true;
+                    checkDiv.className = 'check-item passed';
+                    statusDiv.innerHTML = '<span class="badge bg-success"><i class="fas fa-check"></i> Passed</span>';
+                } else if (data.is_valid === false) {
+                    checkResults.year = false;
+                    checkDiv.className = 'check-item failed';
+                    statusDiv.innerHTML = '<span class="badge bg-danger"><i class="fas fa-times"></i> Failed</span>';
+                } else {
+                    // Needs user input
+                    checkDiv.className = 'check-item pending';
+                    statusDiv.innerHTML = '<span class="badge bg-warning">Needs Review</span>';
+                    buttonsDiv.style.display = 'block';
+                }
+            });
+        }
+
+        function checkLanguage() {
+            return fetch('/api/workflow/filter_by_metadata/check_english', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    title: currentArticle.title || ''
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Language check error:', data.error);
+                    return;
+                }
+                
+                const checkDiv = document.getElementById('languageCheck');
+                const statusDiv = document.getElementById('languageCheckStatus');
+                const buttonsDiv = document.getElementById('languageCheckButtons');
+                
+                if (data.is_english === true) {
+                    // Confidently detected as English - auto-pass
+                    checkResults.language = true;
+                    checkDiv.className = 'check-item passed';
+                    statusDiv.innerHTML = '<span class="badge bg-success"><i class="fas fa-check"></i> Passed</span>';
+                } else {
+                    // Not detected as English or detection failed - needs user verification
+                    // Show detected language if available for user context
+                    let statusText = 'Needs Review';
+                    if (data.detected_language) {
+                        statusText += ` (Detected: ${data.detected_language})`;
+                    }
+                    checkDiv.className = 'check-item pending';
+                    statusDiv.innerHTML = `<span class="badge bg-warning"><i class="fas fa-question-circle"></i> ${statusText}</span>`;
+                    buttonsDiv.style.display = 'block';
+                }
+            });
+        }
+
+        function checkDownload() {
+            return fetch('/api/workflow/filter_by_metadata/check_download', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    eprint_url: currentArticle.eprint_url || ''
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error('Download check error:', data.error);
+                    return;
+                }
+                
+                const checkDiv = document.getElementById('downloadCheck');
+                const statusDiv = document.getElementById('downloadCheckStatus');
+                const buttonsDiv = document.getElementById('downloadCheckButtons');
+                
+                if (data.is_downloadable === true) {
+                    checkResults.download = true;
+                    checkDiv.className = 'check-item passed';
+                    statusDiv.innerHTML = '<span class="badge bg-success"><i class="fas fa-check"></i> Passed</span>';
+                } else {
+                    // Needs user input
+                    checkDiv.className = 'check-item pending';
+                    statusDiv.innerHTML = '<span class="badge bg-warning">Needs Review</span>';
+                    buttonsDiv.style.display = 'block';
+                }
+            });
+        }
+
+        function setVenueCheck(passed) {
+            checkResults.venue = passed;
+            const checkDiv = document.getElementById('venueCheck');
+            const statusDiv = document.getElementById('venueCheckStatus');
+            const buttonsDiv = document.getElementById('venueCheckButtons');
+            
+            if (passed) {
+                checkDiv.className = 'check-item passed';
+                statusDiv.innerHTML = '<span class="badge bg-success"><i class="fas fa-check"></i> Passed</span>';
+            } else {
+                checkDiv.className = 'check-item failed';
+                statusDiv.innerHTML = '<span class="badge bg-danger"><i class="fas fa-times"></i> Failed</span>';
+            }
+            buttonsDiv.style.display = 'none';
+            updateSaveButton();
+        }
+
+        function setYearCheck(passed) {
+            checkResults.year = passed;
+            const checkDiv = document.getElementById('yearCheck');
+            const statusDiv = document.getElementById('yearCheckStatus');
+            const buttonsDiv = document.getElementById('yearCheckButtons');
+            
+            if (passed) {
+                checkDiv.className = 'check-item passed';
+                statusDiv.innerHTML = '<span class="badge bg-success"><i class="fas fa-check"></i> Passed</span>';
+            } else {
+                checkDiv.className = 'check-item failed';
+                statusDiv.innerHTML = '<span class="badge bg-danger"><i class="fas fa-times"></i> Failed</span>';
+            }
+            buttonsDiv.style.display = 'none';
+            updateSaveButton();
+        }
+
+        function setLanguageCheck(passed) {
+            checkResults.language = passed;
+            const checkDiv = document.getElementById('languageCheck');
+            const statusDiv = document.getElementById('languageCheckStatus');
+            const buttonsDiv = document.getElementById('languageCheckButtons');
+            
+            if (passed) {
+                checkDiv.className = 'check-item passed';
+                statusDiv.innerHTML = '<span class="badge bg-success"><i class="fas fa-check"></i> Passed</span>';
+            } else {
+                checkDiv.className = 'check-item failed';
+                statusDiv.innerHTML = '<span class="badge bg-danger"><i class="fas fa-times"></i> Failed</span>';
+            }
+            buttonsDiv.style.display = 'none';
+            updateSaveButton();
+        }
+
+        function setDownloadCheck(passed) {
+            checkResults.download = passed;
+            const checkDiv = document.getElementById('downloadCheck');
+            const statusDiv = document.getElementById('downloadCheckStatus');
+            const buttonsDiv = document.getElementById('downloadCheckButtons');
+            
+            if (passed) {
+                checkDiv.className = 'check-item passed';
+                statusDiv.innerHTML = '<span class="badge bg-success"><i class="fas fa-check"></i> Passed</span>';
+            } else {
+                checkDiv.className = 'check-item failed';
+                statusDiv.innerHTML = '<span class="badge bg-danger"><i class="fas fa-times"></i> Failed</span>';
+            }
+            buttonsDiv.style.display = 'none';
+            updateSaveButton();
+        }
+
+        function updateSaveButton() {
+            // Check if all enabled checks are complete
+            const venueComplete = !filterOptions.enableVenueCheck || checkResults.venue !== null;
+            const yearComplete = !filterOptions.enableYearCheck || checkResults.year !== null;
+            const languageComplete = !filterOptions.enableLanguageCheck || checkResults.language !== null;
+            const downloadComplete = !filterOptions.enableDownloadCheck || checkResults.download !== null;
+            
+            const allComplete = venueComplete && yearComplete && languageComplete && downloadComplete;
+            
+            saveAndNextBtn.disabled = !allComplete;
+            document.getElementById('actionWarning').style.display = allComplete ? 'none' : 'block';
+        }
+
+        // Navigation
+        prevArticleBtn.addEventListener('click', function() {
+            if (currentArticleIndex > 0) {
+                currentArticleIndex--;
+                loadCurrentArticle();
+            }
+        });
+
+        saveAndNextBtn.addEventListener('click', function() {
+            // Skip if article has no ID
+            if (!currentArticle.id) {
+                alert('This article has no ID and will be skipped.');
+                // Move to next article
+                currentArticleIndex++;
+                if (currentArticleIndex >= articlesNeedingInput.length) {
+                    showCompletionMessage();
+                } else {
+                    loadCurrentArticle();
+                }
+                return;
+            }
+            
+            // Determine filter result (only check enabled filters)
+            let filterResult = 'approved';
+            if (filterOptions.enableVenueCheck && checkResults.venue === false) {
+                filterResult = 'venue_filtered';
+            } else if (filterOptions.enableYearCheck && checkResults.year === false) {
+                filterResult = 'year_filtered';
+            } else if (filterOptions.enableLanguageCheck && checkResults.language === false) {
+                filterResult = 'language_filtered';
+            } else if (filterOptions.enableDownloadCheck && checkResults.download === false) {
+                filterResult = 'download_filtered';
+            }
+
+            saveAndNextBtn.disabled = true;
+            saveAndNextBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Saving...';
+
+            const iteration = parseInt(document.getElementById('iteration').value);
+
+            fetch('/api/workflow/filter_by_metadata/save_result', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    article_id: currentArticle.id,
+                    filter_result: filterResult,
+                    iteration: iteration
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error saving result: ' + data.error);
+                    saveAndNextBtn.disabled = false;
+                    saveAndNextBtn.innerHTML = '<i class="fas fa-save"></i> Save & Next';
+                    return;
+                }
+
+                // Move to next article
+                currentArticleIndex++;
+                manualProcessed++;
+                updateProgress();
+                
+                if (currentArticleIndex >= articles.length) {
+                    // All articles processed
+                    articleSection.style.display = 'none';
+                    completionSection.style.display = 'block';
+                } else {
+                    loadCurrentArticle();
+                }
+                
+                saveAndNextBtn.disabled = false;
+                saveAndNextBtn.innerHTML = '<i class="fas fa-save"></i> Save & Next';
+            })
+            .catch(error => {
+                alert('Error: ' + error.message);
+                saveAndNextBtn.disabled = false;
+                saveAndNextBtn.innerHTML = '<i class="fas fa-save"></i> Save & Next';
+            });
+        });
+
+        // Skip step button
+        document.getElementById('skipBtn').addEventListener('click', function() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            if (confirm('Are you sure you want to skip Step 4: Filter by Metadata? This will mark it as skipped and move to the next step.')) {
+                fetch('/api/workflow/skip_step', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        step_name: 'Step 4: Filter by Metadata',
+                        iteration: iteration || null
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Step skipped successfully!');
+                        window.location.href = '/workflow';
+                    } else {
+                        alert('Error: ' + (data.error || 'Failed to skip step'));
+                    }
+                })
+                .catch(error => {
+                    alert('Error: ' + error.message);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Stage - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4 mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h2 class="mb-0">
+                            <i class="fas fa-tasks"></i> Workflow Stage
+                        </h2>
+                        <a href="{{ url_for('index') }}" class="btn btn-light btn-sm">
+                            <i class="fas fa-arrow-left"></i> Back to Dashboard
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        {% if db_error %}
+                            <div class="alert alert-danger">
+                                <i class="fas fa-exclamation-triangle"></i> 
+                                <strong>Error accessing database:</strong> {{ db_error }}
+                            </div>
+                        {% elif not db_exists %}
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle"></i> 
+                                <strong>Database not found:</strong> <code>{{ db_path }}</code>
+                            </div>
+                            <p class="text-muted">
+                                The database file does not exist yet. Please run Step 0 (Generate Snowball Start) to create the database.
+                            </p>
+                        {% elif workflow_info %}
+                            <!-- Database Information Cards -->
+                            <div class="row mb-4">
+                                <div class="col-md-3">
+                                    <div class="card bg-primary text-white">
+                                        <div class="card-body text-center">
+                                            <h3 class="mb-0">
+                                                {% if workflow_info.current_iteration is not none %}
+                                                    {{ workflow_info.current_iteration }}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </h3>
+                                            <small>Current Iteration</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-info text-white">
+                                        <div class="card-body text-center">
+                                            <h5 class="mb-0" style="font-size: 1.1rem;">
+                                                {% if workflow_info.current_step %}
+                                                    {{ workflow_info.current_step }}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </h5>
+                                            <small>Last Executed Step</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-warning text-white">
+                                        <div class="card-body text-center">
+                                            <h3 class="mb-0">{{ workflow_info.new_articles_count }}</h3>
+                                            <small>New Articles (Current Iteration)</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-success text-white">
+                                        <div class="card-body text-center">
+                                            <h3 class="mb-0">{{ workflow_info.content_approved_count }}</h3>
+                                            <small>Content Approved Papers</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Additional Information -->
+                            <div class="alert alert-light border">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <strong><i class="fas fa-database"></i> Total Articles:</strong> 
+                                        {{ workflow_info.total_articles }}
+                                    </div>
+                                    {% if workflow_info.search_method %}
+                                    <div class="col-md-6">
+                                        <strong><i class="fas fa-search"></i> Search Method:</strong> 
+                                        <span class="badge bg-info">{{ workflow_info.search_method }}</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Workflow Steps (Always shown) -->
+                        <div class="mt-5">
+                            <h5 class="mb-3"><i class="fas fa-list-ol"></i> Workflow Steps</h5>
+                            <div class="row g-3">
+                                <!-- Step 0: Generate Snowball Start -->
+                                <div class="col-md-6">
+                                    <div class="card h-100">
+                                        <div class="card-body">
+                                            <h6 class="card-title">
+                                                <span class="badge bg-primary me-2">Step 0</span>
+                                                Generate Snowball Start
+                                            </h6>
+                                            <p class="card-text text-muted small mb-2">
+                                                Generate initial publications from seed file
+                                            </p>
+                                            <a href="{{ url_for('generate_snowball_start_page') }}" class="btn btn-primary btn-sm w-100">
+                                                <i class="fas fa-play"></i> Execute
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 1: Start Iteration -->
+                                <div class="col-md-6">
+                                    <div class="card h-100">
+                                        <div class="card-body">
+                                            <h6 class="card-title">
+                                                <span class="badge bg-primary me-2">Step 1</span>
+                                                Start Iteration
+                                            </h6>
+                                            <p class="card-text text-muted small mb-2">
+                                                Fetch citations and references from previous iteration
+                                            </p>
+                                            <a href="{{ url_for('start_iteration_page') }}" class="btn btn-primary btn-sm w-100">
+                                                <i class="fas fa-play"></i> Execute
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                    <!-- Step 2: Get BibTeX -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 2</span>
+                                                    Get BibTeX
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Fetch BibTeX data for publications
+                                                </p>
+                                                <a href="{{ url_for('get_bibtex_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 3: Generate Conf Rank -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 3</span>
+                                                    Generate Conf Rank
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Assign venue ranks to conferences/journals
+                                                </p>
+                                                <a href="{{ url_for('generate_conf_rank_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 4: Filter by Metadata -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 4</span>
+                                                    Filter by Metadata
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Filter publications by venue, year, language, and download availability
+                                                </p>
+                                                <a href="{{ url_for('filter_by_metadata_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 5: Filter by Title -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 5</span>
+                                                    Filter by Title
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Screen publications based on title
+                                                </p>
+                                                <a href="{{ url_for('filter_by_title_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 6: Solve Title Disagreements -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 6</span>
+                                                    Solve Title Disagreements
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Resolve conflicts in title screening between raters
+                                                </p>
+                                                <a href="{{ url_for('solve_title_disagreements_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 7: Filter by Content -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 7</span>
+                                                    Filter by Content
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Screen publications based on full content
+                                                </p>
+                                                <a href="{{ url_for('filter_by_content_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 8: Solve Content Disagreements -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 8</span>
+                                                    Solve Content Disagreements
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Resolve conflicts in content screening between raters
+                                                </p>
+                                                <a href="{{ url_for('solve_content_disagreements_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 9: Remove Duplicates -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 9</span>
+                                                    Remove Duplicates
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Identify and remove duplicate publications
+                                                </p>
+                                                <a href="{{ url_for('remove_duplicates_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 10: Generate CSV -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 10</span>
+                                                    Generate CSV
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Export final results to CSV file
+                                                </p>
+                                                <a href="{{ url_for('generate_csv_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        {% if not search_conf %}
+                            <div class="mt-4">
+                                <div class="alert alert-warning">
+                                    <i class="fas fa-exclamation-triangle"></i> 
+                                    No configuration found. Please <a href="{{ url_for('configuration') }}" class="alert-link">generate a configuration</a> first.
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+
