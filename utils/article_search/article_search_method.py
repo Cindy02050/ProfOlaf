@@ -1,17 +1,18 @@
-from abc import ABC, abstractmethod
 import sys
 import time
-from scholarly import scholarly
-import requests
-from utils.db_management import ArticleData, SelectionStage
-import hashlib
 import re
 import bibtexparser
+import requests
+import hashlib
+
+from abc import ABC, abstractmethod
+from scholarly import scholarly
 from bibtexparser.bwriter import BibTexWriter
 from bibtexparser.bibdatabase import BibDatabase
 from enum import Enum
 from crossref import CrossRefAPIClient
 
+from ..db_management import ArticleData, SelectionStage
 
 DBLP_SEARCH_TAG = "[DBLP]"
 SS_SEARCH_TAG = "[Semantic Scholar]"
@@ -247,23 +248,30 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
             "search_method": search_method,
             "bibtex": pub.get("bibtex", ""),
             "duplicate": False,
-            "title_reason": "",
-            "content_reason": "",
+            "keep_title": False,
+            "keep_content": False,
             "duplicate": False,
             "search_method": search_method,
         }
+        print("Article dictionary:", article_data)
         return ArticleData(**article_data)
 
     def search(self, query: str):
+        print("Searching for", query)
         response = requests.get(self.search_query.format(query=query), timeout=60)
+        print("Response:", response)
         response.raise_for_status()
         if response.status_code != 200:
             print(f"{SS_SEARCH_TAG} Article not found for", query)
             return None
         data = response.json()
         pub = self.map_to_pub(data["data"][0])
+        print("Pub:", pub)
         # Return articleData
-        return self.get_article_data(pub, pub["paperId"], new_pub=True, selected=SelectionStage.NOT_SELECTED, search_method=self.name)
+        article_data = self.get_article_data(pub, pub["paperId"], new_pub=True, selected=SelectionStage.NOT_SELECTED, search_method=self.name)
+        print("HERE")
+        print("Article data:", article_data)
+        return article_data
     
     def map_to_pub(self, article: dict):
         """

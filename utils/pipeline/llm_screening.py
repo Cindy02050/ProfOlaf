@@ -1,0 +1,178 @@
+import sqlite3
+import json
+import os
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+from openai import OpenAI
+
+from pydantic import BaseModel, Field, create_model
+
+from ..db_management import DBManager, SelectionStage
+
+from ..article_processing.shared_utils import (
+    PDFProcessor,
+    load_config,
+    create_llm,
+    get_use_chat_model,
+    truncate_text,
+)
+
+from ..article_processing.download_pdfs import download_pdf
+
+DOWNLOAD_FOLDER = "articles"
+
+class BaseScreeningResult(BaseModel):
+    title: str = Field(description="The title of the paper")
+    keep: bool = Field(description="Whether to keep the paper")
+    reason: str = Field(description="The reason for the decision")
+
+def get_articles_from_db(db_path: str, iteration: int, stage="title"):
+    db_manager = DBManager(db_path)
+
+    if stage == "title":
+        selected = SelectionStage.METADATA_APPROVED
+    elif stage == "content":
+        selected = SelectionStage.TITLE_APPROVED
+    else:
+        print("Invalid stage")
+        return []
+
+    articles = db_manager.get_iteration_data(
+        iteration=iteration,
+        selected=selected
+    )
+    return articles
+
+def update_screening_result_class(annotations: dict[str, str]):
+    return create_model(
+        "DynamicScreeningResult",
+        __base__=BaseScreeningResult,
+        **{annotation: (str, Field(description=annotations[annotation])) for annotation in annotations},
+    )
+
+def ask_model(
+    system_prompt: str,
+    user_prompt: str,
+    model: str = "gpt-4o",
+    api_key: Optional[str] = None,
+    temperature: float = 0.7,
+    annotations: dict[str, str] = {},
+):
+
+    if len(annotations.keys()) > 0:
+        ScreeningResult = update_screening_result_class(annotations)
+    client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+    try:
+        response = client.responses.parse(
+            model=model,
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt,},
+            ],
+            text_format=DynamicScreeningResult,
+        )
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Failed to parse JSON response: {e}\nResponse: {response_text}")
+    except Exception as e:
+        raise RuntimeError(f"Error calling OpenAI API: {e}")
+
+    return dict(response.output_parsed)
+
+def screen_papers(
+    rater_id: str,
+    topic: str,
+    db_path: str,
+    iteration: int,
+    stage: str,
+    model: str = "gpt-4o",
+    api_key: Optional[str] = None,
+    temperature: float = 0.7,
+    annotations: dict[str, str] = {},
+):
+    articles = get_articles_from_db(db_path, iteration, stage)
+    results = []
+    for article in articles:
+        content = ""
+        keep_key = "keep_title"
+        reason_key = "title_reason"
+        if stage == "content":
+            content = PDFProcessor.extract_text_from_pdf(os.path.join(DOWNLOAD_FOLDER, f"{article.id}.pdf"))
+            keep_key = "keep_content"
+            reason_key = "content_reason"
+        system_prompt_file = "system_content_screening.txt" if stage == "content" else "system_title_screening.txt"
+        user_prompt_file = "user_content_screening.txt" if stage == "content" else "user_title_screening.txt"
+        system_prompt = open(system_prompt_file, "r").read()
+        user_prompt = open(user_prompt_file, "r").read()
+        user_prompt = user_prompt.format(title=article.title, content=content, topic=topic)
+        result = ask_model(system_prompt, user_prompt, model, api_key, temperature, annotations=annotations)
+        result["id"] = article.id
+        result["rater"] = rater_id
+        result["iteration"] = article.iteration
+        result[keep_key] = result.pop("keep")
+        result[reason_key] = result.pop("reason")
+        results.append(result)
+    
+    db_manager = DBManager(db_path)
+    for result in results:
+        db_manager.insert_screening_data(
+            article_id=result["id"],
+            rater=rater_id,
+            iteration=result["iteration"],
+            keep=result[keep_key],
+            reason=result[reason_key],
+            screening_phase=stage,
+            **{
+                annotation: result[annotation] 
+                for annotation in annotations.keys()
+            }
+        )
+    return results
+
+def download_manually(articles):
+    for article in articles:
+        response = input("Have you completed the download? (y/n): ").lower().strip()
+            if response in ['y', 'yes']:
+                file_path = os.path.join(DOWNLOAD_FOLDER, f"{article_id}.pdf")
+                if os.path.exists(file_path) and is_valid_pdf(file_path):
+                    print(f"✓ File {article_id}.pdf verified successfully!")
+                    break
+                else:
+                    if os.path.exists(file_path):
+                        print(f"✗ File {article_id}.pdf exists but is not a valid PDF. \
+                            Please ensure it's a valid PDF file.")
+                    else:
+                        print(f"✗ File {article_id}.pdf not found. \
+                            Please ensure it's saved correctly.")
+                    continue
+            elif response in ['n', 'no']:
+                print("Please complete the download and try again.")
+                continue
+            else:
+                print("Please answer with 'y' or 'n'.")
+
+    print(f"\nDownload complete. Files saved to: {DOWNLOAD_FOLDER}/")
+
+def download_pdfs(articles):
+    failed_downloads = []
+    for article in tqdm(articles, desc="Downloading PDFs"):
+        url = article.eprint_url or article.pub_url
+        if not url:
+            failed_downloads.append(article)
+            continue
+        output_file = os.path.join(DOWNLOAD_FOLDER, f"{article.id}.pdf")
+        if os.path.exists(output_file):
+            continue
+        if download_pdf(url, output_file):
+            if is_valid_pdf(output_file):
+                print(f"Successfully downloaded and verified: {output_file}")
+                time.sleep(1)
+            else:
+                print(f"Downloaded but invalid PDF: {output_file}")
+                os.remove(output_file)
+                failed_downloads.append(article)
+        else:
+            failed_downloads.append(article)
+    if failed_downloads:
+        print("\nFailed downloads:")
+        download_manually(failed_downloads)
+        

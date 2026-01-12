@@ -138,6 +138,20 @@
                             <p class="text-muted" id="currentStep">Ready to start...</p>
                         </div>
 
+                        <!-- Articles Without ID Warning -->
+                        <div id="articlesWithoutIdWarning" class="alert alert-warning mt-4" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <strong>Warning:</strong> <span id="articlesWithoutIdCount">0</span> article(s) were fetched without an ID for iteration <span id="articlesWithoutIdIteration"></span>.
+                                    <br><small class="text-muted">These articles cannot be processed in later steps. You can delete them now or handle them later.</small>
+                                </div>
+                                <button type="button" class="btn btn-danger btn-sm" id="deleteArticlesWithoutIdBtn">
+                                    <i class="fas fa-trash"></i> Delete Articles Without ID
+                                </button>
+                            </div>
+                        </div>
+
                         <!-- Log Output -->
                         <div class="mt-4">
                             <h5><i class="fas fa-list"></i> Log Output</h5>
@@ -199,6 +213,15 @@
                         cancelBtn.disabled = true;
                         cancelBtn.style.display = 'none';
                         progressSection.style.display = 'none';
+                        
+                        // Check for articles without IDs
+                        if (data.articles_without_id_count > 0 && data.articles_without_id_iteration) {
+                            document.getElementById('articlesWithoutIdCount').textContent = data.articles_without_id_count;
+                            document.getElementById('articlesWithoutIdIteration').textContent = data.articles_without_id_iteration;
+                            document.getElementById('articlesWithoutIdWarning').style.display = 'block';
+                        } else {
+                            document.getElementById('articlesWithoutIdWarning').style.display = 'none';
+                        }
                     }
                 })
                 .catch(error => {
@@ -296,6 +319,46 @@
                 })
                 .catch(error => {
                     alert('Error: ' + error.message);
+                });
+            }
+        });
+
+        // Delete articles without ID button
+        document.getElementById('deleteArticlesWithoutIdBtn').addEventListener('click', function() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            const count = parseInt(document.getElementById('articlesWithoutIdCount').textContent);
+            
+            if (confirm(`Are you sure you want to delete ${count} article(s) without IDs from iteration ${iteration}? This action cannot be undone.`)) {
+                const btn = this;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+                
+                fetch('/api/workflow/start_iteration/delete_articles_without_id', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        iteration: iteration
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.message || `Successfully deleted ${data.deleted_count} article(s)`);
+                        document.getElementById('articlesWithoutIdWarning').style.display = 'none';
+                        // Refresh status to update counts
+                        updateStatus();
+                    } else {
+                        alert('Error: ' + (data.error || 'Failed to delete articles'));
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-trash"></i> Delete Articles Without ID';
+                    }
+                })
+                .catch(error => {
+                    alert('Error: ' + error.message);
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-trash"></i> Delete Articles Without ID';
                 });
             }
         });

@@ -2,7 +2,7 @@ import csv
 import os
 import pandas as pd
 from typing import Dict, Any
-from utils.conference_similarity_search import similarity_score
+from utils.venue_rank_search.conference_similarity_search import similarity_score
 from dataclasses import dataclass
 TITLE_COL = "standard_name"
 ACRONYM_COL = "acronym"

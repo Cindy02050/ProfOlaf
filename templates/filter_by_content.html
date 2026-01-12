@@ -213,6 +213,14 @@
                                            value="{{ default_iteration }}" min="0" required>
                                     <div class="form-text">Iteration number to filter articles from</div>
                                 </div>
+                                <div class="col-md-6">
+                                    <label for="rater" class="form-label">
+                                        <i class="fas fa-user"></i> Rater ID <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" class="form-control" id="rater" name="rater" 
+                                           value="{{ default_rater }}" required>
+                                    <div class="form-text">Unique identifier for the rater/user</div>
+                                </div>
                             </div>
                             
                             <div class="d-flex gap-2">
@@ -656,6 +664,15 @@
             document.getElementById('rejectBtn').disabled = true;
             document.getElementById('skipArticleBtn').disabled = true;
 
+            const rater = document.getElementById('rater').value.trim();
+            if (!rater) {
+                showError('Rater ID is required');
+                document.getElementById('approveBtn').disabled = false;
+                document.getElementById('rejectBtn').disabled = false;
+                document.getElementById('skipArticleBtn').disabled = false;
+                return;
+            }
+
             fetch('/api/workflow/filter_by_content/save_result', {
                 method: 'POST',
                 headers: {
@@ -666,7 +683,8 @@
                     decision: decision,
                     reason: reason,
                     annotations: annotationsData,
-                    iteration: currentIteration
+                    iteration: currentIteration,
+                    rater: rater
                 })
             })
             .then(response => response.json())

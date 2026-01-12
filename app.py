@@ -6,48 +6,22 @@ ProfOlaf Web Application - Entry Point
 import os
 import json
 import threading
+import shutil
 from flask import Flask, render_template, request, jsonify, flash, redirect, url_for, send_file
 from pathlib import Path
 from collections import defaultdict
 from utils.db_management import DBManager, SelectionStage, initialize_db
-from utils.article_search_method import SearchMethod, ArticleSearch
+from utils.article_search.article_search_method import SearchMethod, ArticleSearch
 from werkzeug.utils import secure_filename
-import importlib.util
 
-# Import generate_snowball_start from 0_generate_snowball_start.py
-spec = importlib.util.spec_from_file_location("generate_snowball_start_module", "0_generate_snowball_start.py")
-generate_snowball_start_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(generate_snowball_start_module)
-generate_snowball_start = generate_snowball_start_module.generate_snowball_start
-extract_titles_from_file = generate_snowball_start_module.extract_titles_from_file
-
-# Import start_iteration from 1_start_iteration.py
-spec_iter = importlib.util.spec_from_file_location("start_iteration_module", "1_start_iteration.py")
-start_iteration_module = importlib.util.module_from_spec(spec_iter)
-spec_iter.loader.exec_module(start_iteration_module)
-get_articles = start_iteration_module.get_articles
-
-# Import get_bibtex from 2_get_bibtex.py
-spec_bibtex = importlib.util.spec_from_file_location("get_bibtex_module", "2_get_bibtex.py")
-get_bibtex_module = importlib.util.module_from_spec(spec_bibtex)
-spec_bibtex.loader.exec_module(get_bibtex_module)
-process_articles_optimized = get_bibtex_module.process_articles_optimized
-get_bibtex_single = get_bibtex_module.get_bibtex_single
-
-# Import generate_conf_rank from 3_generate_conf_rank.py
-spec_conf_rank = importlib.util.spec_from_file_location("generate_conf_rank_module", "3_generate_conf_rank.py")
-generate_conf_rank_module = importlib.util.module_from_spec(spec_conf_rank)
-spec_conf_rank.loader.exec_module(generate_conf_rank_module)
-get_venues = generate_conf_rank_module.get_venues
-find_similar_venues = generate_conf_rank_module.find_similar_venues
-_get_scimago_rank = generate_conf_rank_module._get_scimago_rank
-_get_core_rank = generate_conf_rank_module._get_core_rank
-
-# Import filter_by_metadata from 4_filter_by_metadata.py
-spec_filter_metadata = importlib.util.spec_from_file_location("filter_metadata_module", "4_filter_by_metadata.py")
-filter_metadata_module = importlib.util.module_from_spec(spec_filter_metadata)
-spec_filter_metadata.loader.exec_module(filter_metadata_module)
-automated_check_venue_and_peer_reviewed = filter_metadata_module.automated_check_venue_and_peer_reviewed
+# Import from pipeline modules
+from utils.pipeline.generate_snowball_start_utils import generate_snowball_start, extract_titles_from_file
+from utils.pipeline.start_iteration_utils import get_articles
+from utils.pipeline.get_bibtex import process_articles_optimized, get_bibtex_single
+from utils.pipeline.generate_conf_rank_utils import get_venues, find_similar_venues, _get_scimago_rank, _get_core_rank
+from utils.pipeline.filter_by_metadata_utils import automated_check_venue_and_peer_reviewed
+from utils.pipeline.screening import apply_decision
+from utils.pipeline.solve_disagreements import settle_agreements
 
 # Global state for tracking running tasks
 running_tasks = {
@@ -65,7 +39,9 @@ running_tasks = {
         'total': 0,
         'current_step': '',
         'logs': [],
-        'cancel_flag': None
+        'cancel_flag': None,
+        'articles_without_id_count': 0,
+        'articles_without_id_iteration': None
     },
     'get_bibtex': {
         'is_running': False,
@@ -240,7 +216,8 @@ def generate_search_conf(data):
         "db_path": data.get('db_path', 'database.db'),
         "csv_path": data.get('csv_path', 'results.csv'),
         "search_method": data.get('search_method', 'google_scholar'),
-        "annotations": annotations
+        "annotations": annotations,
+        "rater": data.get('rater', 'default')
     }
     
     return config
@@ -956,24 +933,32 @@ def execute_generate_snowball_start():
                     task_state['total'] = total
                 
                 log("Initializing database...")
-                db_manager = initialize_db(db_path)
+                db_manager = initialize_db(db_path, search_conf)
                 
                 log(f"Starting snowball start generation...")
                 log(f"Input file: {input_file}")
                 log(f"Search method: {search_method_str}")
                 log(f"Delay: {delay} seconds")
                 
-                # Execute the generation
-                generate_snowball_start(
+                # Execute the generation (returns initial_pubs, seen_titles)
+                result = generate_snowball_start(
                     input_file=input_file,
-                    iteration=ITERATION_0,
+                    iteration=ITERATION_0, 
                     delay=delay,
-                    db_manager=db_manager,
                     search_method=search_method,
-                    log_callback=log,
-                    progress_callback=progress,
-                    cancel_flag=cancel_flag
+                    progress_callback=progress
                 )
+                # Handle case where no titles found (function returns None)
+                if result is None:
+                    log("No titles found in the input file.")
+                    return
+                
+                initial_pubs, seen_titles = result
+                
+                # Insert data into database
+                log(f"Inserting {len(initial_pubs)} publications into database...")
+                db_manager.insert_iteration_data(initial_pubs)
+                db_manager.insert_seen_titles_data(seen_titles)
                 
                 if not cancel_flag.is_set():
                     log("✓ Generation completed successfully!")
@@ -1190,6 +1175,20 @@ def execute_start_iteration():
                 
                 if not cancel_flag.is_set():
                     log(f"✓ Successfully completed iteration {iteration}")
+                    
+                    # Check for articles without IDs
+                    articles_no_id = db_manager.get_iteration_data(
+                        iteration=iteration,
+                        id__empty=True
+                    )
+                    if articles_no_id:
+                        log(f"⚠ Warning: Found {len(articles_no_id)} articles without IDs")
+                        task_state['articles_without_id_count'] = len(articles_no_id)
+                        task_state['articles_without_id_iteration'] = iteration
+                    else:
+                        task_state['articles_without_id_count'] = 0
+                        task_state['articles_without_id_iteration'] = None
+                    
                     # Update current iteration
                     update_current_iteration(iteration)
                     # Update workflow state
@@ -1228,7 +1227,9 @@ def get_start_iteration_status():
         'progress': task_state['progress'],
         'total': task_state['total'],
         'current_step': task_state['current_step'],
-        'logs': task_state['logs'][-100:]
+        'logs': task_state['logs'][-100:],
+        'articles_without_id_count': task_state.get('articles_without_id_count', 0),
+        'articles_without_id_iteration': task_state.get('articles_without_id_iteration', None)
     })
 
 
@@ -1246,6 +1247,114 @@ def cancel_start_iteration():
         return jsonify({'success': True, 'message': 'Cancellation requested'})
     
     return jsonify({'error': 'No cancel flag available'}), 400
+
+
+@app.route('/api/workflow/start_iteration/check_articles_without_id', methods=['GET'])
+def check_articles_without_id():
+    """Check for articles without IDs in a specific iteration"""
+    try:
+        iteration = int(request.args.get('iteration', 0))
+        if iteration < 1:
+            return jsonify({'error': 'Valid iteration number is required'}), 400
+        
+        # Get database path from config
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'error': 'Database path not configured'}), 400
+        
+        db_path = search_conf['db_path']
+        db_manager = DBManager(db_path)
+        
+        # Get articles without IDs
+        articles_no_id = db_manager.get_iteration_data(
+            iteration=iteration,
+            id__empty=True
+        )
+        
+        articles_data = []
+        for article in articles_no_id:
+            articles_data.append({
+                'title': article.title or 'No title',
+                'venue': article.venue or '',
+                'pub_year': article.pub_year or ''
+            })
+        
+        return jsonify({
+            'success': True,
+            'count': len(articles_no_id),
+            'articles': articles_data,
+            'iteration': iteration
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/start_iteration/delete_articles_without_id', methods=['POST'])
+def delete_articles_without_id():
+    """Delete articles without IDs from a specific iteration"""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration', 0))
+        
+        if iteration < 1:
+            return jsonify({'error': 'Valid iteration number is required'}), 400
+        
+        # Get database path from config
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'error': 'Database path not configured'}), 400
+        
+        db_path = search_conf['db_path']
+        db_manager = DBManager(db_path)
+        
+        # Get articles without IDs
+        articles_no_id = db_manager.get_iteration_data(
+            iteration=iteration,
+            id__empty=True
+        )
+        
+        if not articles_no_id:
+            return jsonify({
+                'success': True,
+                'message': 'No articles without IDs found',
+                'deleted_count': 0
+            })
+        
+        # Delete articles by ID (empty string or None)
+        deleted_count = 0
+        for article in articles_no_id:
+            try:
+                # Delete from iterations table
+                db_manager.cursor.execute(
+                    "DELETE FROM iterations WHERE id = ? AND iteration = ?",
+                    (article.id if article.id else '', iteration)
+                )
+                deleted_count += 1
+            except Exception as e:
+                print(f"Error deleting article: {e}")
+                continue
+        
+        db_manager.conn.commit()
+        
+        # Clear the task state if this was the iteration we just processed
+        task_state = running_tasks['start_iteration']
+        if task_state.get('articles_without_id_iteration') == iteration:
+            task_state['articles_without_id_count'] = 0
+            task_state['articles_without_id_iteration'] = None
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deleted {deleted_count} article(s) without IDs',
+            'deleted_count': deleted_count
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/workflow/get_bibtex', methods=['GET'])
@@ -2147,8 +2256,12 @@ def filter_by_title_page():
     # Default to current iteration if available
     default_iteration = current_iteration if current_iteration is not None else 0
     
+    # Get default rater from config
+    default_rater = search_conf.get('rater', 'default') if search_conf else 'default'
+    
     return render_template('filter_by_title.html',
                          default_iteration=default_iteration,
+                         default_rater=default_rater,
                          workflow_info=workflow_info)
 
 
@@ -2173,15 +2286,8 @@ def get_articles_for_title_filter():
         )
         
         # Filter out articles that are already title-approved or title-filtered-out
-        filtered_articles = []
-        for article in articles:
-            selected_int = int(article.selected) if article.selected is not None else 0
-            if selected_int < SelectionStage.TITLE_APPROVED.value and not article.title_filtered_out:
-                filtered_articles.append(article)
-        
-        # Convert to JSON-serializable format
         articles_data = []
-        for article in filtered_articles:
+        for article in articles:
             articles_data.append({
                 'id': article.id,
                 'title': article.title or '',
@@ -2228,19 +2334,35 @@ def save_title_filter_result():
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
         
-        # Prepare update data based on decision
-        update_data = []
-        if decision == 'approve':
-            update_data.append((article_id, SelectionStage.TITLE_APPROVED.value, "selected"))
-            if reason:
-                update_data.append((article_id, reason, "title_reason"))
-        elif decision == 'reject':
-            update_data.append((article_id, True, "title_filtered_out"))
-            if reason:
-                update_data.append((article_id, reason, "title_reason"))
+        # Get rater from request (required)
+        rater = data.get('rater')
+        if not rater:
+            return jsonify({'error': 'Rater ID is required'}), 400
         
-        # Save to database
-        db_manager.update_batch_iteration_data(iteration, update_data)
+        # Ensure screening table exists (with annotations if configured)
+        annotations = search_conf.get('annotations', [])
+        db_manager.create_screening_table(annotations)
+        
+        # Get the article object to pass to apply_decision
+        articles = db_manager.get_iteration_data(iteration=iteration, id=article_id)
+        if not articles:
+            return jsonify({'error': f'Article {article_id} not found'}), 404
+        
+        article = articles[0]
+        
+        # Convert 'approve'/'reject' to 'y'/'n' format expected by apply_decision
+        decision_char = 'y' if decision == 'approve' else 'n'
+        
+        # Use apply_decision from screening.py to insert into screening table
+        apply_decision(
+            db_manager=db_manager,
+            article=article,
+            iteration=iteration,
+            rater=rater,
+            decision=decision_char,
+            reason=reason or '',
+            screening_phase="title"
+        )
         
         # Update workflow state
         update_workflow_state(
@@ -2272,11 +2394,15 @@ def filter_by_content_page():
     # Default to current iteration if available
     default_iteration = current_iteration if current_iteration is not None else 0
     
+    # Get rater from config
+    default_rater = search_conf.get('rater', 'default') if search_conf else 'default'
+    
     # Get annotations from config
     annotations = search_conf.get('annotations', []) if search_conf else []
     
     return render_template('filter_by_content.html',
                          default_iteration=default_iteration,
+                         default_rater=default_rater,
                          workflow_info=workflow_info,
                          annotations=annotations)
 
@@ -2305,8 +2431,8 @@ def get_articles_for_content_filter():
         filtered_articles = []
         for article in articles:
             selected_int = int(article.selected) if article.selected is not None else 0
-            abstract_filtered = getattr(article, 'abstract_filtered_out', False)
-            if selected_int < SelectionStage.CONTENT_APPROVED.value and not abstract_filtered:
+            keep_content = getattr(article, 'keep_content', True)  # Default to True (not filtered) if not set
+            if selected_int < SelectionStage.CONTENT_APPROVED.value and keep_content:
                 filtered_articles.append(article)
         
         # Convert to JSON-serializable format
@@ -2383,25 +2509,48 @@ def save_content_filter_result():
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
         
-        # Prepare update data based on decision
-        update_data = []
-        if decision == 'approve':
-            update_data.append((article_id, SelectionStage.CONTENT_APPROVED.value, "selected"))
-            
-            # Combine reason and annotations into JSON for content_reason
-            user_data = {'reason': reason}
-            if annotations:
-                user_data.update(annotations)
-            update_data.append((article_id, json.dumps(user_data), "content_reason"))
-        elif decision == 'reject':
-            update_data.append((article_id, True, "abstract_filtered_out"))
-            
-            # Save reason (no annotations for rejected articles)
-            user_data = {'reason': reason}
-            update_data.append((article_id, json.dumps(user_data), "content_reason"))
+        # Get rater from request (required)
+        rater = data.get('rater')
+        if not rater:
+            return jsonify({'error': 'Rater ID is required'}), 400
         
-        # Save to database
-        db_manager.update_batch_iteration_data(iteration, update_data)
+        # Ensure screening table exists (with annotations if configured)
+        annotations_config = search_conf.get('annotations', [])
+        db_manager.create_screening_table(annotations_config)
+        
+        # Get the article object to pass to apply_decision
+        articles = db_manager.get_iteration_data(iteration=iteration, id=article_id)
+        if not articles:
+            return jsonify({'error': f'Article {article_id} not found'}), 404
+        
+        article = articles[0]
+        
+        # Convert 'approve'/'reject' to 'y'/'n' format expected by apply_decision
+        decision_char = 'y' if decision == 'approve' else 'n'
+        
+        # Use apply_decision from screening.py to insert into screening table
+        # Pass annotations as keyword arguments (only if approving)
+        if decision == 'approve' and annotations:
+            apply_decision(
+                db_manager=db_manager,
+                article=article,
+                iteration=iteration,
+                rater=rater,
+                decision=decision_char,
+                reason=reason or '',
+                screening_phase="content",
+                **annotations
+            )
+        else:
+            apply_decision(
+                db_manager=db_manager,
+                article=article,
+                iteration=iteration,
+                rater=rater,
+                decision=decision_char,
+                reason=reason or '',
+                screening_phase="content"
+            )
         
         # Update workflow state
         update_workflow_state(
@@ -2469,33 +2618,65 @@ def skip_workflow_step():
                     articles_updated += 1
         
         elif step_name == 'Step 5: Filter by Title':
-            # Skip title filter: approve all METADATA_APPROVED articles (set to TITLE_APPROVED)
+            # Skip title filter: approve all METADATA_APPROVED articles in screening table only
             # When skipping Step 5, we bypass title filtering, so all METADATA_APPROVED articles are approved
+            # Only update screening table - iterations table will be updated during solve disagreements
             articles = db_manager.get_iteration_data(
                 iteration=current_iteration,
                 selected=SelectionStage.METADATA_APPROVED.value
             )
+            
+            # Get rater name and ensure screening table exists
+            rater = os.path.basename(db_path).replace('.db', '') or 'default'
+            search_conf = load_search_conf()
+            if search_conf:
+                annotations = search_conf.get('annotations', [])
+                if annotations:
+                    db_manager.create_screening_table(annotations)
+            
+            # Create screening entries for all articles (approve all)
             for article in articles:
-                # Update to TITLE_APPROVED (even if previously filtered out, since we're skipping the step)
-                update_data.append((article.id, SelectionStage.TITLE_APPROVED.value, "selected"))
-                # Clear the title_filtered_out flag if it was set
-                if getattr(article, 'title_filtered_out', False):
-                    update_data.append((article.id, False, "title_filtered_out"))
+                # Insert screening data with keep_title=True (approve all when skipping)
+                db_manager.insert_screening_data(
+                    article_id=article.id,
+                    rater=rater,
+                    iteration=current_iteration,
+                    keep_title=True,
+                    title_reason='Step skipped - all articles approved',
+                    keep_content=False,
+                    content_reason=''
+                )
                 articles_updated += 1
         
         elif step_name == 'Step 7: Filter by Content':
-            # Skip content filter: approve all TITLE_APPROVED articles (set to CONTENT_APPROVED)
+            # Skip content filter: approve all TITLE_APPROVED articles in screening table only
             # When skipping Step 7, we bypass content filtering, so all TITLE_APPROVED articles are approved
+            # Only update screening table - iterations table will be updated during solve disagreements
             articles = db_manager.get_iteration_data(
                 iteration=current_iteration,
                 selected=SelectionStage.TITLE_APPROVED.value
             )
+            
+            # Get rater name and ensure screening table exists
+            search_conf = load_search_conf()
+            rater = search_conf.get('rater', 'default') if search_conf else 'default'
+            if search_conf:
+                annotations = search_conf.get('annotations', [])
+                if annotations:
+                    db_manager.create_screening_table(annotations)
+            
+            # Create screening entries for all articles (approve all when skipping)
             for article in articles:
-                # Update to CONTENT_APPROVED (even if previously filtered out, since we're skipping the step)
-                update_data.append((article.id, SelectionStage.CONTENT_APPROVED.value, "selected"))
-                # Clear the abstract_filtered_out flag if it was set
-                if getattr(article, 'abstract_filtered_out', False):
-                    update_data.append((article.id, False, "abstract_filtered_out"))
+                # Insert screening data with keep_content=True (approve all when skipping)
+                db_manager.insert_screening_data(
+                    article_id=article.id,
+                    rater=rater,
+                    iteration=current_iteration,
+                    keep_title=True,  # Assume title was approved if we're at content filtering
+                    title_reason='',
+                    keep_content=True,
+                    content_reason='Step skipped - all articles approved'
+                )
                 articles_updated += 1
         
         # Apply bulk updates if any
@@ -2553,114 +2734,140 @@ def solve_title_disagreements_page():
                          workflow_info=workflow_info)
 
 
-@app.route('/api/workflow/solve_title_disagreements/find_disagreements', methods=['POST'])
-def find_title_disagreements():
-    """Find disagreements between multiple databases"""
+@app.route('/api/workflow/solve_title_disagreements/merge_databases', methods=['POST'])
+def merge_title_databases():
+    """Merge multiple databases into one - copy all tables from first DB, merge screening tables from all DBs"""
     try:
         data = request.get_json()
-        iteration = int(data.get('iteration'))
         db_paths = data.get('db_paths', [])  # List of database paths
+        merged_db_name = data.get('merged_db_name', 'merged_title_screening.db')
         
-        if not db_paths or len(db_paths) < 2:
-            return jsonify({'error': 'At least 2 database paths are required'}), 400
+        if not db_paths or len(db_paths) == 0:
+            return jsonify({'error': 'At least 1 database path is required'}), 400
+        
+        if not merged_db_name:
+            return jsonify({'error': 'Merged database name is required'}), 400
         
         # Validate all databases exist
         for db_path in db_paths:
             if not os.path.exists(db_path):
                 return jsonify({'error': f'Database not found: {db_path}'}), 400
         
-        # Create DB managers for all databases
-        db_managers = {db_path: DBManager(db_path) for db_path in db_paths}
+        # Copy first database to merged database name
+        merged_db_path = merged_db_name if os.path.isabs(merged_db_name) else os.path.join(os.path.dirname(db_paths[0]), merged_db_name)
+        shutil.copy2(db_paths[0], merged_db_path)
         
-        # Get selected publications from each database
-        selected_pubs = {}
-        for db_path, db_manager in db_managers.items():
-            selected_pubs[db_path] = db_manager.get_iteration_data(
+        # Open merged database
+        merged_db = DBManager(merged_db_path)
+        
+        # Merge screening tables from all databases
+        other_dbs = [DBManager(db_path) for db_path in db_paths[1:]]
+        if other_dbs:
+            merged_db.merge_databases(*other_dbs)
+        
+        return jsonify({
+            'success': True,
+            'merged_db_path': merged_db_path,
+            'message': f'Successfully merged {len(db_paths)} database(s) into {merged_db_name}'
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/solve_title_disagreements/find_disagreements', methods=['POST'])
+def find_title_disagreements():
+    """Find disagreements from merged database using get_disagreements_screening_data"""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration'))
+        merged_db_path = data.get('merged_db_path')
+        
+        if not merged_db_path:
+            return jsonify({'error': 'Merged database path is required'}), 400
+        
+        if not os.path.exists(merged_db_path):
+            return jsonify({'error': f'Merged database not found: {merged_db_path}'}), 400
+        
+        # Open merged database
+        merged_db = DBManager(merged_db_path)
+        
+        # First, settle agreements (articles where all raters agreed)
+        # This automatically updates the iterations table for agreed articles
+        try:
+            settle_agreements(iteration, merged_db, SelectionStage.TITLE_APPROVED)
+        except Exception as e:
+            import traceback
+            print(f"Error settling agreements: {traceback.format_exc()}")
+            # Continue even if there's an error - we still want to find disagreements
+        
+        # Get disagreements using get_disagreements_screening_data
+        try:
+            disagreements_raw = merged_db.get_disagreements_screening_data(
                 iteration=iteration,
-                selected=SelectionStage.TITLE_APPROVED
+                title_settled=False,
+                content_settled=False,
+                phase="title"
             )
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            disagreements_raw = []
         
-        # Find all unique publications
-        all_pubs = set()
-        for pubs in selected_pubs.values():
-            all_pubs.update(pubs)
+        if not disagreements_raw:
+            return jsonify({
+                'success': True,
+                'disagreements': [],
+                'total': 0,
+                'message': 'No disagreements found. All raters agreed on all articles.'
+            })
         
-        # Find disagreements: publications where not all raters agree
+        # Cluster disagreements by article_id
+        clustered_disagreements = {}
+        for disagreement in disagreements_raw:
+            article_id = disagreement['id']
+            if article_id not in clustered_disagreements:
+                clustered_disagreements[article_id] = []
+            clustered_disagreements[article_id].append(disagreement)
+        
+        # Get article details from iterations table
         disagreements = []
-        for pub in all_pubs:
-            rater_decisions = {}  # Track decision for each rater
+        for article_id, disagreement_list in clustered_disagreements.items():
+            # Get article details
+            articles = merged_db.get_iteration_data(iteration=iteration, id=article_id)
+            if not articles:
+                continue  # Skip if article not found
+            
+            article = articles[0]
+            
+            # Organize by rater
+            selected_by = []
+            filtered_out_by = []
             reasons = {}
             
-            for db_path, db_manager in db_managers.items():
-                # Get the article from this database
-                article_list = db_manager.get_iteration_data(iteration=iteration, id=pub.id)
-                db_name = os.path.basename(db_path).replace('.db', '')
+            for disagreement in disagreement_list:
+                rater = disagreement.get('rater', '')
+                keep_title = disagreement.get('keep_title', False)
+                reason_title = disagreement.get('reason_title', '') or ''
                 
-                if article_list:
-                    article = article_list[0]
-                    selected_int = int(article.selected) if article.selected is not None else 0
-                    is_filtered_out = getattr(article, 'title_filtered_out', False)
-                    
-                    # Determine decision: selected, filtered_out, or not_selected
-                    if selected_int == SelectionStage.TITLE_APPROVED.value:
-                        decision = 'selected'
-                    elif is_filtered_out:
-                        decision = 'filtered_out'
-                    else:
-                        decision = 'not_selected'
-                    
-                    rater_decisions[db_name] = decision
-                    
-                    # Get reason (could be string or dict)
-                    reason = getattr(article, 'title_reason', '') or ''
-                    # If reason is a string that looks like JSON, try to parse it
-                    if isinstance(reason, str) and reason.startswith('{'):
-                        try:
-                            import json
-                            reason = json.loads(reason)
-                            # If it's a dict, extract as string for display
-                            if isinstance(reason, dict):
-                                reason_str = reason.get(db_name, '') or ''
-                                if not reason_str:
-                                    # Try to get any value from dict
-                                    reason_str = list(reason.values())[0] if reason.values() else ''
-                                reason = reason_str if reason_str else ''
-                        except:
-                            pass
-                    
-                    # Store reason even if empty (will show "No reason provided")
-                    reasons[db_name] = reason if reason else "No reason provided"
+                if keep_title:
+                    selected_by.append(rater)
                 else:
-                    # Article doesn't exist in this database - treat as not_selected
-                    rater_decisions[db_name] = 'not_selected'
-                    reasons[db_name] = "Article not found in this database"
+                    filtered_out_by.append(rater)
+                
+                reasons[rater] = reason_title if reason_title else "No reason provided"
             
-            # Check if there's a disagreement
-            selected_by = [name for name, decision in rater_decisions.items() if decision == 'selected']
-            filtered_out_by = [name for name, decision in rater_decisions.items() if decision == 'filtered_out']
-            not_selected_by = [name for name, decision in rater_decisions.items() if decision == 'not_selected']
-            
-            # Disagreement exists if there are different decisions (selected vs not selected or filtered out)
-            has_disagreement = False
-            if selected_by:
-                # Some selected it
-                if filtered_out_by or not_selected_by:
-                    has_disagreement = True
-            elif filtered_out_by and not_selected_by:
-                # Some filtered out, some didn't select - also a disagreement
-                has_disagreement = True
-            
-            if has_disagreement:
-                disagreements.append({
-                    'id': pub.id,
-                    'title': pub.title or 'No title',
-                    'url': pub.pub_url or pub.eprint_url or '',
-                    'selected_by': selected_by,
-                    'filtered_out_by': filtered_out_by,
-                    'not_selected_by': not_selected_by,
-                    'reasons': reasons,  # All reasons from all raters
-                    'rater_decisions': rater_decisions
-                })
+            disagreements.append({
+                'id': article_id,
+                'title': article.title or 'No title',
+                'url': article.pub_url or article.eprint_url or '',
+                'selected_by': selected_by,
+                'filtered_out_by': filtered_out_by,
+                'not_selected_by': [],  # Not applicable for merged database
+                'reasons': reasons
+            })
         
         return jsonify({
             'success': True,
@@ -2676,51 +2883,57 @@ def find_title_disagreements():
 
 @app.route('/api/workflow/solve_title_disagreements/save_decision', methods=['POST'])
 def save_title_disagreement_decision():
-    """Save the final decision for a disagreement"""
+    """Save the final decision for a disagreement - updates merged database"""
     try:
         data = request.get_json()
         article_id = data.get('article_id')
         iteration = int(data.get('iteration'))
         decision = data.get('decision')  # 'accept' or 'reject'
-        db_paths = data.get('db_paths', [])
-        selected_reasonings = data.get('selected_reasonings', {})  # Dict of rater_name -> reason
+        merged_db_path = data.get('merged_db_path')
         
-        if not article_id or not decision or not db_paths:
-            return jsonify({'error': 'Article ID, decision, and database paths are required'}), 400
+        if not article_id or not decision or not merged_db_path:
+            return jsonify({'error': 'Article ID, decision, and merged database path are required'}), 400
         
         if decision not in ['accept', 'reject']:
             return jsonify({'error': 'Decision must be "accept" or "reject"'}), 400
         
-        # Update all databases
-        for db_path in db_paths:
-            if not os.path.exists(db_path):
-                continue
-            
-            db_manager = DBManager(db_path)
-            
-            if decision == 'accept':
-                # Accept: set to TITLE_APPROVED and save selected reasonings
-                # Build reasonings dict from selected_reasonings
-                reasonings_dict = selected_reasonings
-                db_manager.update_iteration_data(
-                    iteration,
-                    article_id,
-                    selected=SelectionStage.TITLE_APPROVED.value,
-                    title_reason=reasonings_dict
-                )
-            else:
-                # Reject: set to METADATA_APPROVED (one stage back)
-                db_manager.update_iteration_data(
-                    iteration,
-                    article_id,
-                    selected=SelectionStage.METADATA_APPROVED.value
-                )
+        if not os.path.exists(merged_db_path):
+            return jsonify({'error': f'Merged database not found: {merged_db_path}'}), 400
         
-        # Update workflow state
-        search_conf = load_search_conf()
-        db_path = search_conf.get('db_path', 'database.db') if search_conf else 'database.db'
+        # Open merged database
+        merged_db = DBManager(merged_db_path)
+        
+        # Check if article exists
+        article_list = merged_db.get_iteration_data(iteration=iteration, id=article_id)
+        if not article_list:
+            return jsonify({'error': f'Article {article_id} not found in merged database'}), 404
+        
+        if decision == 'accept':
+            # Accept: set to TITLE_APPROVED and keep_title=True
+            # Reasonings are stored in screening table and can be accessed later
+            merged_db.update_iteration_data(
+                iteration,
+                article_id,
+                selected=SelectionStage.TITLE_APPROVED.value,
+                keep_title=True
+            )
+            # Settle in screening table (title_settled=True, content_settled=False)
+            merged_db.settle_screening_data(iteration, article_id, settled=True, phase="title")
+        else:
+            # Reject: set keep_title flag to False and keep at METADATA_APPROVED (one stage back)
+            # Reasonings are stored in screening table and can be accessed later
+            merged_db.update_iteration_data(
+                iteration,
+                article_id,
+                selected=SelectionStage.METADATA_APPROVED.value,
+                keep_title=False
+            )
+            # Settle in screening table
+            merged_db.settle_screening_data(iteration, article_id, settled=True, phase="title")
+        
+        # Update workflow state (use merged database path)
         update_workflow_state(
-            db_path=db_path,
+            db_path=merged_db_path,
             current_iteration=iteration,
             last_step="Step 6: Solve Title Disagreements"
         )
@@ -2734,7 +2947,6 @@ def save_title_disagreement_decision():
         import traceback
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
-
 
 @app.route('/workflow/solve_content_disagreements', methods=['GET'])
 def solve_content_disagreements_page():
@@ -2757,115 +2969,153 @@ def solve_content_disagreements_page():
                          workflow_info=workflow_info)
 
 
+@app.route('/api/workflow/solve_content_disagreements/merge_databases', methods=['POST'])
+def merge_content_databases():
+    """Merge multiple databases into one - copy all tables from first DB, merge screening tables from all DBs"""
+    try:
+        data = request.get_json()
+        db_paths = data.get('db_paths', [])  # List of database paths
+        merged_db_name = data.get('merged_db_name', 'merged_content_screening.db')
+        
+        if not db_paths or len(db_paths) == 0:
+            return jsonify({'error': 'At least 1 database path is required'}), 400
+        
+        if not merged_db_name:
+            return jsonify({'error': 'Merged database name is required'}), 400
+        
+        # Validate all databases exist
+        for db_path in db_paths:
+            if not os.path.exists(db_path):
+                return jsonify({'error': f'Database not found: {db_path}'}), 400
+        
+        # Copy first database to merged database name
+        merged_db_path = merged_db_name if os.path.isabs(merged_db_name) else os.path.join(os.path.dirname(db_paths[0]), merged_db_name)
+        shutil.copy2(db_paths[0], merged_db_path)
+        
+        # Open merged database
+        merged_db = DBManager(merged_db_path)
+        
+        # Merge screening tables from all databases
+        other_dbs = [DBManager(db_path) for db_path in db_paths[1:]]
+        if other_dbs:
+            merged_db.merge_databases(*other_dbs)
+        
+        return jsonify({
+            'success': True,
+            'merged_db_path': merged_db_path,
+            'message': f'Successfully merged {len(db_paths)} database(s) into {merged_db_name}'
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/workflow/solve_content_disagreements/find_disagreements', methods=['POST'])
 def find_content_disagreements():
-    """Find disagreements between multiple databases for content screening"""
+    """Find disagreements from merged database using get_disagreements_screening_data"""
     try:
         data = request.get_json()
         iteration = int(data.get('iteration'))
-        db_paths = data.get('db_paths', [])
+        merged_db_path = data.get('merged_db_path')
         
-        if not db_paths or len(db_paths) < 2:
-            return jsonify({'error': 'At least 2 database paths are required'}), 400
+        if not merged_db_path:
+            return jsonify({'error': 'Merged database path is required'}), 400
         
-        # Open all databases
-        db_managers = {}
-        all_articles = {}
+        if not os.path.exists(merged_db_path):
+            return jsonify({'error': f'Merged database not found: {merged_db_path}'}), 400
         
-        for db_path in db_paths:
-            if not os.path.exists(db_path):
-                continue
-            db_manager = DBManager(db_path)
-            db_managers[db_path] = db_manager
-            
-            # Get all articles from this database for the iteration
-            articles = db_manager.get_iteration_data(iteration=iteration)
-            for article in articles:
-                if article.id not in all_articles:
-                    all_articles[article.id] = article
+        # Open merged database
+        merged_db = DBManager(merged_db_path)
         
+        # First, settle agreements (articles where all raters agreed)
+        # This automatically updates the iterations table for agreed articles
+        try:
+            settle_agreements(iteration, merged_db, SelectionStage.CONTENT_APPROVED)
+        except Exception as e:
+            import traceback
+            print(f"Error settling agreements: {traceback.format_exc()}")
+            # Continue even if there's an error - we still want to find disagreements
+        
+        # Get disagreements using get_disagreements_screening_data
+        try:
+            disagreements_raw = merged_db.get_disagreements_screening_data(
+                iteration=iteration,
+                title_settled=True,
+                content_settled=False,
+                phase="content"
+            )
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            disagreements_raw = []
+        
+        if not disagreements_raw:
+            return jsonify({
+                'success': True,
+                'disagreements': [],
+                'total': 0,
+                'message': 'No disagreements found. All raters agreed on all articles.'
+            })
+        
+        # Cluster disagreements by article_id
+        clustered_disagreements = {}
+        for disagreement in disagreements_raw:
+            article_id = disagreement['id']
+            if article_id not in clustered_disagreements:
+                clustered_disagreements[article_id] = []
+            clustered_disagreements[article_id].append(disagreement)
+        
+        # Get article details from iterations table
         disagreements = []
-        for pub_id, pub in all_articles.items():
-            rater_decisions = {}  # Track decision for each rater
+        for article_id, disagreement_list in clustered_disagreements.items():
+            # Get article details
+            articles = merged_db.get_iteration_data(iteration=iteration, id=article_id)
+            if not articles:
+                continue  # Skip if article not found
+            
+            article = articles[0]
+            
+            # Organize by rater
+            selected_by = []
+            filtered_out_by = []
             reasons = {}
             annotations = {}  # Track annotations for each rater
             
-            for db_path, db_manager in db_managers.items():
-                # Get the article from this database
-                article_list = db_manager.get_iteration_data(iteration=iteration, id=pub_id)
-                db_name = os.path.basename(db_path).replace('.db', '')
+            for disagreement in disagreement_list:
+                rater = disagreement.get('rater', '')
+                keep_content = disagreement.get('keep_content', False)
+                reason_content = disagreement.get('reason_content', '') or ''
                 
-                if article_list:
-                    article = article_list[0]
-                    selected_int = int(article.selected) if article.selected is not None else 0
-                    is_filtered_out = getattr(article, 'abstract_filtered_out', False)
-                    
-                    # Determine decision: selected, filtered_out, or not_selected
-                    if selected_int == SelectionStage.CONTENT_APPROVED.value:
-                        decision = 'selected'
-                    elif is_filtered_out:
-                        decision = 'filtered_out'
-                    else:
-                        decision = 'not_selected'
-                    
-                    rater_decisions[db_name] = decision
-                    
-                    # Get content_reason (contains JSON with reason and annotations)
-                    content_reason = getattr(article, 'content_reason', '') or ''
-                    reason_text = ''
-                    annotation_dict = {}
-                    
-                    if content_reason:
-                        try:
-                            # Try to parse as JSON
-                            import json
-                            reason_json = json.loads(content_reason)
-                            if isinstance(reason_json, dict):
-                                reason_text = reason_json.get('reason', '')
-                                # Extract annotations (all fields except 'reason')
-                                for key, value in reason_json.items():
-                                    if key != 'reason':
-                                        annotation_dict[key] = value
-                        except (json.JSONDecodeError, TypeError):
-                            # Not JSON, treat as plain text reason
-                            reason_text = content_reason
-                    
-                    # Store reason and annotations
-                    reasons[db_name] = reason_text if reason_text else "No reason provided"
-                    if annotation_dict:
-                        annotations[db_name] = annotation_dict
+                if keep_content:
+                    selected_by.append(rater)
                 else:
-                    # Article doesn't exist in this database - treat as not_selected
-                    rater_decisions[db_name] = 'not_selected'
-                    reasons[db_name] = "Article not found in this database"
+                    filtered_out_by.append(rater)
+                
+                reasons[rater] = reason_content if reason_content else "No reason provided"
+                
+                # Get annotations for this rater (all annotation columns)
+                search_conf = load_search_conf()
+                annotations_config = search_conf.get('annotations', []) if search_conf else []
+                rater_annotations = {}
+                for annotation_key in annotations_config:
+                    annotation_value = disagreement.get(annotation_key, '')
+                    if annotation_value:
+                        rater_annotations[annotation_key] = annotation_value
+                if rater_annotations:
+                    annotations[rater] = rater_annotations
             
-            # Check if there's a disagreement
-            selected_by = [name for name, decision in rater_decisions.items() if decision == 'selected']
-            filtered_out_by = [name for name, decision in rater_decisions.items() if decision == 'filtered_out']
-            not_selected_by = [name for name, decision in rater_decisions.items() if decision == 'not_selected']
-            
-            # Disagreement exists if there are different decisions
-            has_disagreement = False
-            if selected_by:
-                # Some selected it
-                if filtered_out_by or not_selected_by:
-                    has_disagreement = True
-            elif filtered_out_by and not_selected_by:
-                # Some filtered out, some didn't select - also a disagreement
-                has_disagreement = True
-            
-            if has_disagreement:
-                disagreements.append({
-                    'id': pub_id,
-                    'title': pub.title or 'No title',
-                    'url': pub.pub_url or pub.eprint_url or '',
-                    'selected_by': selected_by,
-                    'filtered_out_by': filtered_out_by,
-                    'not_selected_by': not_selected_by,
-                    'reasons': reasons,  # All reasons from all raters
-                    'annotations': annotations,  # All annotations from all raters
-                    'rater_decisions': rater_decisions
-                })
+            disagreements.append({
+                'id': article_id,
+                'title': article.title or 'No title',
+                'url': article.pub_url or article.eprint_url or '',
+                'selected_by': selected_by,
+                'filtered_out_by': filtered_out_by,
+                'not_selected_by': [],  # Not applicable for merged database
+                'reasons': reasons,
+                'annotations': annotations
+            })
         
         return jsonify({
             'success': True,
@@ -2881,83 +3131,57 @@ def find_content_disagreements():
 
 @app.route('/api/workflow/solve_content_disagreements/save_decision', methods=['POST'])
 def save_content_disagreement_decision():
-    """Save the final decision for a content disagreement"""
+    """Save the final decision for a disagreement - updates merged database"""
     try:
         data = request.get_json()
         article_id = data.get('article_id')
         iteration = int(data.get('iteration'))
         decision = data.get('decision')  # 'accept' or 'reject'
-        db_paths = data.get('db_paths', [])
-        selected_reasonings = data.get('selected_reasonings', {})  # Dict of rater_name -> reason
-        selected_annotations = data.get('selected_annotations', {})  # Dict of rater_name -> annotations dict
+        merged_db_path = data.get('merged_db_path')
         
-        if not article_id or not decision or not db_paths:
-            return jsonify({'error': 'Article ID, decision, and database paths are required'}), 400
+        if not article_id or not decision or not merged_db_path:
+            return jsonify({'error': 'Article ID, decision, and merged database path are required'}), 400
         
         if decision not in ['accept', 'reject']:
             return jsonify({'error': 'Decision must be "accept" or "reject"'}), 400
         
-        # Update all databases
-        for db_path in db_paths:
-            if not os.path.exists(db_path):
-                continue
-            
-            db_manager = DBManager(db_path)
-            
-            if decision == 'accept':
-                # Accept: set to CONTENT_APPROVED and merge selected reasonings and annotations
-                # Combine reasonings and annotations into content_reason JSON
-                import json
-                
-                # Merge all selected annotations into one dict
-                merged_annotations = {}
-                merged_reason = ''
-                
-                # Collect all annotations (from all selected raters)
-                for rater, annotations_dict in selected_annotations.items():
-                    if isinstance(annotations_dict, dict):
-                        # Add all annotation fields
-                        for key, value in annotations_dict.items():
-                            if key != 'reason':
-                                # If multiple raters have same annotation key, prefer the first one
-                                if key not in merged_annotations:
-                                    merged_annotations[key] = value
-                
-                # Collect reasonings - use first selected reasoning
-                if selected_reasonings:
-                    merged_reason = list(selected_reasonings.values())[0] if selected_reasonings.values() else ''
-                
-                # Build the content_reason JSON
-                content_reason_dict = {'reason': merged_reason}
-                content_reason_dict.update(merged_annotations)
-                
-                db_manager.update_iteration_data(
-                    iteration,
-                    article_id,
-                    selected=SelectionStage.CONTENT_APPROVED.value,
-                    content_reason=json.dumps(content_reason_dict)
-                )
-            else:
-                # Reject: set abstract_filtered_out to True
-                # Save reason (no annotations for rejected articles)
-                import json
-                merged_reason = ''
-                if selected_reasonings:
-                    merged_reason = list(selected_reasonings.values())[0] if selected_reasonings.values() else ''
-                
-                content_reason_dict = {'reason': merged_reason}
-                db_manager.update_iteration_data(
-                    iteration,
-                    article_id,
-                    abstract_filtered_out=True,
-                    content_reason=json.dumps(content_reason_dict)
-                )
+        if not os.path.exists(merged_db_path):
+            return jsonify({'error': f'Merged database not found: {merged_db_path}'}), 400
         
-        # Update workflow state
-        search_conf = load_search_conf()
-        db_path = search_conf.get('db_path', 'database.db') if search_conf else 'database.db'
+        # Open merged database
+        merged_db = DBManager(merged_db_path)
+        
+        # Check if article exists
+        article_list = merged_db.get_iteration_data(iteration=iteration, id=article_id)
+        if not article_list:
+            return jsonify({'error': f'Article {article_id} not found in merged database'}), 404
+        
+        if decision == 'accept':
+            # Accept: set to CONTENT_APPROVED and keep_content=True
+            # Reasonings and annotations are stored in screening table and can be accessed later
+            merged_db.update_iteration_data(
+                iteration,
+                article_id,
+                selected=SelectionStage.CONTENT_APPROVED.value,
+                keep_content=True
+            )
+            # Settle in screening table (title_settled=True, content_settled=True)
+            merged_db.settle_screening_data(iteration, article_id, settled=True, phase="content")
+        else:
+            # Reject: set keep_content flag to False and keep at TITLE_APPROVED (one stage back)
+            # Reasonings and annotations are stored in screening table and can be accessed later
+            merged_db.update_iteration_data(
+                iteration,
+                article_id,
+                selected=SelectionStage.TITLE_APPROVED.value,
+                keep_content=False
+            )
+            # Settle in screening table
+            merged_db.settle_screening_data(iteration, article_id, settled=True, phase="content")
+        
+        # Update workflow state (use merged database path)
         update_workflow_state(
-            db_path=db_path,
+            db_path=merged_db_path,
             current_iteration=iteration,
             last_step="Step 8: Solve Content Disagreements"
         )

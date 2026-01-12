@@ -4,7 +4,7 @@ from typing import Optional, List, Tuple, Dict, Any
 from urllib.parse import quote_plus, urljoin, urlparse, parse_qs
 import requests
 from bs4 import BeautifulSoup
-from utils.conference_similarity_search import VenueMatch, similarity_score
+from utils.venue_rank_search.conference_similarity_search import VenueMatch, similarity_score
 SCIMAGO_BASE_URL = "https://www.scimagojr.com/"
 
 @dataclass

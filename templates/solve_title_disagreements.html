@@ -134,7 +134,7 @@
 
                                     <div class="mb-3">
                                         <label class="form-label">
-                                            <i class="fas fa-database"></i> Database Files <span class="text-danger">*</span>
+                                            <i class="fas fa-database"></i> Database Files (one for each rater) <span class="text-danger">*</span>
                                         </label>
                                         <div id="dbInputs">
                                             <div class="db-input-group input-group">
@@ -153,11 +153,21 @@
                                         <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="addDbInput()">
                                             <i class="fas fa-plus"></i> Add Another Database
                                         </button>
-                                        <div class="form-text">Add at least 2 database files to compare. The main database is already included. Use Browse to select database files from your file system.</div>
+                                        <div class="form-text">Add database files from each rater. These will be merged into a single database for disagreement resolution.</div>
                                     </div>
 
-                                    <button type="button" class="btn btn-primary btn-lg" id="findDisagreementsBtn">
-                                        <i class="fas fa-search"></i> Find Disagreements
+                                    <div class="mb-3">
+                                        <label for="mergedDbName" class="form-label">
+                                            <i class="fas fa-database"></i> Merged Database Name <span class="text-danger">*</span>
+                                        </label>
+                                        <input type="text" class="form-control" id="mergedDbName" 
+                                               placeholder="e.g., merged_title_screening.db" 
+                                               value="merged_title_screening.db" required>
+                                        <div class="form-text">Name for the resulting merged database. All tables will be copied from the first database, and screening tables from all databases will be merged.</div>
+                                    </div>
+
+                                    <button type="button" class="btn btn-primary btn-lg" id="mergeAndFindBtn">
+                                        <i class="fas fa-code-branch"></i> Merge Databases and Find Disagreements
                                     </button>
                                 </div>
                             </div>
@@ -207,7 +217,7 @@
                                     <!-- Reasonings -->
                                     <div class="mb-4">
                                         <h6><i class="fas fa-comments"></i> Reasonings</h6>
-                                        <p class="text-muted small">Select which reasonings you wish to keep (checkboxes are shown for selected raters):</p>
+                                        <p class="text-muted small">Reasonings from each rater (for reference only - all reasonings are stored in the screening table):</p>
                                         <div id="reasoningsContainer"></div>
                                     </div>
 
@@ -264,6 +274,7 @@
         let disagreements = [];
         let currentDisagreementIndex = 0;
         let dbPaths = [];
+        let mergedDbPath = null;
         let currentIteration = null;
 
         // Add database input
@@ -335,8 +346,8 @@
             });
         }
 
-        // Find disagreements
-        document.getElementById('findDisagreementsBtn').addEventListener('click', function() {
+        // Merge databases and find disagreements
+        document.getElementById('mergeAndFindBtn').addEventListener('click', function() {
             const iteration = parseInt(document.getElementById('iteration').value);
             if (isNaN(iteration) || iteration < 0) {
                 showError('Please enter a valid iteration number');
@@ -353,8 +364,14 @@
                 }
             }
 
-            if (dbPaths.length < 2) {
-                showError('Please add at least 2 database files');
+            if (dbPaths.length < 1) {
+                showError('Please add at least 1 database file');
+                return;
+            }
+
+            const mergedDbName = document.getElementById('mergedDbName').value.trim();
+            if (!mergedDbName) {
+                showError('Please enter a name for the merged database');
                 return;
             }
 
@@ -366,17 +383,42 @@
             document.getElementById('disagreementSection').style.display = 'none';
             document.getElementById('errorAlert').style.display = 'none';
             document.getElementById('completionSection').style.display = 'none';
+            document.getElementById('loadingSpinner').querySelector('p').textContent = 'Merging databases...';
 
-            // Find disagreements
-            fetch('/api/workflow/solve_title_disagreements/find_disagreements', {
+            // First, merge databases
+            fetch('/api/workflow/solve_title_disagreements/merge_databases', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    iteration: iteration,
-                    db_paths: dbPaths
+                    db_paths: dbPaths,
+                    merged_db_name: mergedDbName
                 })
+            })
+            .then(response => response.json())
+            .then(mergeData => {
+                if (!mergeData.success) {
+                    document.getElementById('loadingSpinner').style.display = 'none';
+                    showError(mergeData.error || 'Failed to merge databases');
+                    document.getElementById('setupSection').style.display = 'block';
+                    return;
+                }
+
+                mergedDbPath = mergeData.merged_db_path;
+
+                // Now find disagreements from merged database
+                document.getElementById('loadingSpinner').querySelector('p').textContent = 'Finding disagreements...';
+                return fetch('/api/workflow/solve_title_disagreements/find_disagreements', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        iteration: iteration,
+                        merged_db_path: mergedDbPath
+                    })
+                });
             })
             .then(response => response.json())
             .then(data => {
@@ -385,6 +427,19 @@
                 if (!data.success) {
                     showError(data.error || 'Failed to find disagreements');
                     document.getElementById('setupSection').style.display = 'block';
+                    return;
+                }
+
+                // Check if decisions were auto-applied (single database case)
+                if (data.auto_applied) {
+                    document.getElementById('setupSection').style.display = 'none';
+                    document.getElementById('completionSection').style.display = 'block';
+                    document.getElementById('completionSection').innerHTML = 
+                        `<div class="alert alert-success">
+                            <i class="fas fa-check-circle"></i> <strong>Success!</strong><br>
+                            ${data.message || 'All decisions have been automatically applied.'}<br>
+                            <small class="text-muted">${data.applied_count || 0} article(s) processed.</small>
+                        </div>`;
                     return;
                 }
 
@@ -463,71 +518,45 @@
             html += '</div>';
             ratersInfo.innerHTML = html;
 
-            // Update reasonings
+            // Update reasonings (read-only display)
             const reasoningsContainer = document.getElementById('reasoningsContainer');
             html = '';
             
-            // Show reasonings from all raters
-            // First, show selected raters (checked by default)
+            // Show reasonings from all raters (read-only, no checkboxes)
             const selectedRaters = disagreement.selected_by || [];
             for (let rater of selectedRaters) {
                 const reason = disagreement.reasons[rater] || 'No reason provided';
                 html += `
                     <div class="card reasoning-card selected" id="reasoning-${rater}">
                         <div class="card-body">
-                            <div class="form-check">
-                                <input class="form-check-input reasoning-checkbox" type="checkbox" 
-                                       id="reasoning-checkbox-${rater}" 
-                                       value="${rater}"
-                                       checked>
-                                <label class="form-check-label" for="reasoning-checkbox-${rater}">
-                                    <strong class="rater-badge rater-selected">${rater}</strong> (Selected)
-                                </label>
-                            </div>
+                            <strong class="rater-badge rater-selected">${rater}</strong> <span class="text-muted">(Selected)</span>
                             <p class="mt-2 mb-0">${escapeHtml(reason)}</p>
                         </div>
                     </div>
                 `;
             }
 
-            // Show reasonings from raters who filtered out (unchecked by default, but can be selected)
             const filteredRaters = disagreement.filtered_out_by || [];
             for (let rater of filteredRaters) {
                 const reason = disagreement.reasons[rater] || 'No reason provided';
                 html += `
                     <div class="card reasoning-card rejected" id="reasoning-${rater}">
                         <div class="card-body">
-                            <div class="form-check">
-                                <input class="form-check-input reasoning-checkbox" type="checkbox" 
-                                       id="reasoning-checkbox-${rater}" 
-                                       value="${rater}">
-                                <label class="form-check-label" for="reasoning-checkbox-${rater}">
-                                    <strong class="rater-badge rater-rejected">${rater}</strong> (Filtered out)
-                                </label>
-                            </div>
+                            <strong class="rater-badge rater-rejected">${rater}</strong> <span class="text-muted">(Filtered out)</span>
                             <p class="mt-2 mb-0">${escapeHtml(reason)}</p>
                         </div>
                     </div>
                 `;
             }
 
-            // Also show reasonings from raters who didn't select (if they have reasons)
             const notSelectedRaters = disagreement.not_selected_by || [];
             for (let rater of notSelectedRaters) {
                 const reason = disagreement.reasons[rater] || '';
-                // Only show if there's a reason (not just "Article not found")
-                if (reason && reason !== 'Article not found in this database') {
+                if (reason && reason !== 'Article not processed by this rater') {
                     html += `
                         <div class="card reasoning-card" id="reasoning-${rater}">
                             <div class="card-body">
-                                <div class="form-check">
-                                    <input class="form-check-input reasoning-checkbox" type="checkbox" 
-                                           id="reasoning-checkbox-${rater}" 
-                                           value="${rater}">
-                                    <label class="form-check-label" for="reasoning-checkbox-${rater}">
-                                        <strong class="rater-badge rater-not-selected">${rater}</strong> (Not selected)
-                                    </label>
-                                </div>
+                                <strong class="rater-badge rater-not-selected">${rater}</strong> <span class="text-muted">(Not selected)</span>
                                 <p class="mt-2 mb-0">${escapeHtml(reason)}</p>
                             </div>
                         </div>
@@ -589,16 +618,6 @@
         function saveDecision(decision) {
             const disagreement = disagreements[currentDisagreementIndex];
             
-            // Get selected reasonings
-            const selectedReasonings = {};
-            const checkboxes = document.querySelectorAll('.reasoning-checkbox:checked');
-            for (let checkbox of checkboxes) {
-                const rater = checkbox.value;
-                if (disagreement.reasons[rater]) {
-                    selectedReasonings[rater] = disagreement.reasons[rater];
-                }
-            }
-
             // Disable buttons
             document.getElementById('acceptBtn').disabled = true;
             document.getElementById('rejectBtn').disabled = true;
@@ -612,8 +631,7 @@
                     article_id: disagreement.id,
                     iteration: currentIteration,
                     decision: decision,
-                    db_paths: dbPaths,
-                    selected_reasonings: selectedReasonings
+                    merged_db_path: mergedDbPath
                 })
             })
             .then(response => response.json())
