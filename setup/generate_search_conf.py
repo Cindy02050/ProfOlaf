@@ -1,142 +1,59 @@
 import json
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
-from typing import List, Tuple
 
+from argparse import ArgumentParser
 
-class SearchConfigGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Search Configuration Generator")
-        self.root.geometry("700x800")
-        
-        # Variables to store input values
-        self.start_year_var = tk.StringVar()
-        self.end_year_var = tk.StringVar()
-        self.venue_list = []
-        self.proxy_key_var = tk.StringVar()
-        self.proxy_is_file_var = tk.BooleanVar(value=False)
-        self.initial_file_var = tk.StringVar()
-        self.db_path_var = tk.StringVar()
-        self.csv_path_var = tk.StringVar()
-        self.search_method_var = tk.StringVar(value="google_scholar")
-        self.annotations_list = []
-        
-        self.create_widgets()
+def generate_year_interval():
+    while True:
+        start_year = int(input("Enter the starting year: "))
+        end_year = int(input("Enter the ending year: "))
+        if start_year > end_year or start_year <= 0 or end_year <= 0:
+            print("Starting year must be less than ending year. Please try again.")
+        else:
+            return start_year, end_year
+
+def generate_venue_rank():
+    venue_list = []
+    while True:
+        venue = input("Enter the accepted venue ranks (stops with empty input): ")
+        if venue == "":
+            break
+        venue_list += venue.split(",")
     
-    def create_widgets(self):
-        # Main frame with scrolling
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Configure grid weights
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        
-        row = 0
-        
-        # Start Year
-        ttk.Label(main_frame, text="Starting Year:").grid(row=row, column=0, sticky=tk.W, pady=5)
-        start_year_entry = ttk.Entry(main_frame, textvariable=self.start_year_var, width=20)
-        start_year_entry.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
-        row += 1
-        
-        # End Year
-        ttk.Label(main_frame, text="Ending Year:").grid(row=row, column=0, sticky=tk.W, pady=5)
-        end_year_entry = ttk.Entry(main_frame, textvariable=self.end_year_var, width=20)
-        end_year_entry.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
-        row += 1
-        
-        # Venue Ranks
-        venue_frame = ttk.LabelFrame(main_frame, text="Accepted Venue Ranks", padding="5")
-        venue_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        venue_frame.columnconfigure(0, weight=1)
-        
-        self.venue_text = scrolledtext.ScrolledText(venue_frame, height=4, width=40)
-        self.venue_text.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=2)
-        ttk.Label(venue_frame, text="Enter venue ranks separated by commas (e.g., A*, A, B, Q1, Q2):", 
-                 font=('TkDefaultFont', 10)).grid(row=1, column=0, columnspan=2, sticky=tk.W)
-        row += 1
-        
-        # Proxy Key
-        proxy_frame = ttk.Frame(main_frame)
-        proxy_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        proxy_frame.columnconfigure(0, weight=1)
-        ttk.Label(proxy_frame, text="Proxy Key (optional):").grid(row=0, column=0, sticky=tk.W)
-        proxy_entry = ttk.Entry(proxy_frame, textvariable=self.proxy_key_var, width=30)
-        proxy_entry.grid(row=1, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
-        proxy_checkbox = ttk.Checkbutton(proxy_frame, text="From file", variable=self.proxy_is_file_var,
-                                         command=self.toggle_proxy_browse)
-        proxy_checkbox.grid(row=1, column=1, sticky=tk.W, padx=(0, 5))
-        self.proxy_browse_btn = ttk.Button(proxy_frame, text="Browse...", 
-                                           command=lambda: self.browse_file(self.proxy_key_var),
-                                           state="disabled")
-        self.proxy_browse_btn.grid(row=1, column=2)
-        row += 1
-        
-        # Initial File
-        file_frame = ttk.Frame(main_frame)
-        file_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        file_frame.columnconfigure(0, weight=1)
-        ttk.Label(file_frame, text="Initial File:").grid(row=0, column=0, sticky=tk.W)
-        initial_file_entry = ttk.Entry(file_frame, textvariable=self.initial_file_var, width=30)
-        initial_file_entry.grid(row=1, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
-        ttk.Button(file_frame, text="Browse...", command=lambda: self.browse_file(self.initial_file_var)).grid(row=1, column=1)
-        row += 1
-        
-        # DB Path
-        db_frame = ttk.Frame(main_frame)
-        db_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        db_frame.columnconfigure(0, weight=1)
-        ttk.Label(db_frame, text="Database Path:").grid(row=0, column=0, sticky=tk.W)
-        db_path_entry = ttk.Entry(db_frame, textvariable=self.db_path_var, width=30)
-        db_path_entry.grid(row=1, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
-        ttk.Button(db_frame, text="Browse...", command=lambda: self.browse_file(self.db_path_var, filetypes=[("Database files", "*.db"), ("All files", "*.*")])).grid(row=1, column=1)
-        row += 1
-        
-        # CSV Path
-        csv_frame = ttk.Frame(main_frame)
-        csv_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        csv_frame.columnconfigure(0, weight=1)
-        ttk.Label(csv_frame, text="CSV Path:").grid(row=0, column=0, sticky=tk.W)
-        csv_path_entry = ttk.Entry(csv_frame, textvariable=self.csv_path_var, width=30)
-        csv_path_entry.grid(row=1, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
-        ttk.Button(csv_frame, text="Browse...", command=lambda: self.browse_file(self.csv_path_var, filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])).grid(row=1, column=1)
-        row += 1
-        
-        # Search Method
-        ttk.Label(main_frame, text="Search Method:").grid(row=row, column=0, sticky=tk.W, pady=5)
-        search_method_combo = ttk.Combobox(main_frame, textvariable=self.search_method_var, 
-                                          values=["google_scholar", "semantic_scholar"], 
-                                          state="readonly", width=20)
-        search_method_combo.grid(row=row, column=1, sticky=tk.W, pady=5)
-        row += 1
-        
-        # Annotations
-        annotation_frame = ttk.LabelFrame(main_frame, text="Annotations", padding="5")
-        annotation_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
-        annotation_frame.columnconfigure(0, weight=1)
-        
-        self.annotation_text = scrolledtext.ScrolledText(annotation_frame, height=4, width=40)
-        self.annotation_text.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=2)
-        ttk.Label(annotation_frame, text="Enter annotations, one per line:", 
-                 font=('TkDefaultFont', 8)).grid(row=1, column=0, sticky=tk.W)
-        row += 1
-        
-        # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=row, column=0, columnspan=2, pady=20)
-        ttk.Button(button_frame, text="Generate Configuration", command=self.generate_config).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=self.root.quit).pack(side=tk.LEFT, padx=5)
-        
-        # Configure row weights for scrolling
-        main_frame.rowconfigure(row, weight=1)
-    
-    def toggle_proxy_browse(self):
-        """Enable/disable browse button based on checkbox"""
-        if self.proxy_is_file_var.get():
-            self.proxy_browse_btn.config(state="normal")
+    return [rank.strip() for rank in venue_list]
+
+def generate_proxy_key():
+    while True:
+        proxy_key = input("Enter the proxy key (or the env variable name): ")
+        if proxy_key == "":
+            proxy_key = input("Proceed without proxy key? (y/n): ")
+            if proxy_key == "y":
+                return ""
+            else:
+                continue
+        else:
+            return proxy_key
+
+def generate_initial_file():
+    while True:
+        initial_file = input("Enter the initial file: ")
+        if initial_file == "":
+            continue
+        else:
+            return initial_file
+
+def generate_db_path():
+    while True:
+        db_path = input("Enter the db path: ")
+        if db_path == "":
+            continue
+        else:
+            return db_path
+
+def generate_csv_path():
+    while True:
+        csv_path = input("Enter the path to the final csv file: ")
+        if csv_path == "":
+            continue
         else:
             self.proxy_browse_btn.config(state="disabled")
     

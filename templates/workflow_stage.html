@@ -141,12 +141,30 @@
                                     </div>
                                 </div>
 
-                                    <!-- Step 2: Get BibTeX -->
+                                    <!-- Step 2: Remove Duplicates -->
                                     <div class="col-md-6">
                                         <div class="card h-100">
                                             <div class="card-body">
                                                 <h6 class="card-title">
                                                     <span class="badge bg-primary me-2">Step 2</span>
+                                                    Remove Duplicates
+                                                </h6>
+                                                <p class="card-text text-muted small mb-2">
+                                                    Identify and remove duplicate publications
+                                                </p>
+                                                <a href="{{ url_for('remove_duplicates_page') }}" class="btn btn-primary btn-sm w-100">
+                                                    <i class="fas fa-play"></i> Execute
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 3: Get BibTeX -->
+                                    <div class="col-md-6">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <h6 class="card-title">
+                                                    <span class="badge bg-primary me-2">Step 3</span>
                                                     Get BibTeX
                                                 </h6>
                                                 <p class="card-text text-muted small mb-2">
@@ -159,12 +177,12 @@
                                         </div>
                                     </div>
 
-                                    <!-- Step 3: Generate Conf Rank -->
+                                    <!-- Step 4: Generate Conf Rank -->
                                     <div class="col-md-6">
                                         <div class="card h-100">
                                             <div class="card-body">
                                                 <h6 class="card-title">
-                                                    <span class="badge bg-primary me-2">Step 3</span>
+                                                    <span class="badge bg-primary me-2">Step 4</span>
                                                     Generate Conf Rank
                                                 </h6>
                                                 <p class="card-text text-muted small mb-2">
@@ -177,12 +195,12 @@
                                         </div>
                                     </div>
 
-                                    <!-- Step 4: Filter by Metadata -->
+                                    <!-- Step 5: Filter by Metadata -->
                                     <div class="col-md-6">
                                         <div class="card h-100">
                                             <div class="card-body">
                                                 <h6 class="card-title">
-                                                    <span class="badge bg-primary me-2">Step 4</span>
+                                                    <span class="badge bg-primary me-2">Step 5</span>
                                                     Filter by Metadata
                                                 </h6>
                                                 <p class="card-text text-muted small mb-2">
@@ -195,12 +213,12 @@
                                         </div>
                                     </div>
 
-                                    <!-- Step 5: Filter by Title -->
+                                    <!-- Step 6: Filter by Title -->
                                     <div class="col-md-6">
                                         <div class="card h-100">
                                             <div class="card-body">
                                                 <h6 class="card-title">
-                                                    <span class="badge bg-primary me-2">Step 5</span>
+                                                    <span class="badge bg-primary me-2">Step 6</span>
                                                     Filter by Title
                                                 </h6>
                                                 <p class="card-text text-muted small mb-2">
@@ -213,12 +231,12 @@
                                         </div>
                                     </div>
 
-                                    <!-- Step 6: Solve Title Disagreements -->
+                                    <!-- Step 7: Solve Title Disagreements -->
                                     <div class="col-md-6">
                                         <div class="card h-100">
                                             <div class="card-body">
                                                 <h6 class="card-title">
-                                                    <span class="badge bg-primary me-2">Step 6</span>
+                                                    <span class="badge bg-primary me-2">Step 7</span>
                                                     Solve Title Disagreements
                                                 </h6>
                                                 <p class="card-text text-muted small mb-2">
@@ -231,12 +249,12 @@
                                         </div>
                                     </div>
 
-                                    <!-- Step 7: Filter by Content -->
+                                    <!-- Step 8: Filter by Content -->
                                     <div class="col-md-6">
                                         <div class="card h-100">
                                             <div class="card-body">
                                                 <h6 class="card-title">
-                                                    <span class="badge bg-primary me-2">Step 7</span>
+                                                    <span class="badge bg-primary me-2">Step 8</span>
                                                     Filter by Content
                                                 </h6>
                                                 <p class="card-text text-muted small mb-2">
@@ -249,36 +267,18 @@
                                         </div>
                                     </div>
 
-                                    <!-- Step 8: Solve Content Disagreements -->
+                                    <!-- Step 9: Solve Content Disagreements -->
                                     <div class="col-md-6">
                                         <div class="card h-100">
                                             <div class="card-body">
                                                 <h6 class="card-title">
-                                                    <span class="badge bg-primary me-2">Step 8</span>
+                                                    <span class="badge bg-primary me-2">Step 9</span>
                                                     Solve Content Disagreements
                                                 </h6>
                                                 <p class="card-text text-muted small mb-2">
                                                     Resolve conflicts in content screening between raters
                                                 </p>
                                                 <a href="{{ url_for('solve_content_disagreements_page') }}" class="btn btn-primary btn-sm w-100">
-                                                    <i class="fas fa-play"></i> Execute
-                                                </a>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Step 9: Remove Duplicates -->
-                                    <div class="col-md-6">
-                                        <div class="card h-100">
-                                            <div class="card-body">
-                                                <h6 class="card-title">
-                                                    <span class="badge bg-primary me-2">Step 9</span>
-                                                    Remove Duplicates
-                                                </h6>
-                                                <p class="card-text text-muted small mb-2">
-                                                    Identify and remove duplicate publications
-                                                </p>
-                                                <a href="{{ url_for('remove_duplicates_page') }}" class="btn btn-primary btn-sm w-100">
                                                     <i class="fas fa-play"></i> Execute
                                                 </a>
                                             </div>

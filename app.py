@@ -22,6 +22,7 @@ from utils.pipeline.generate_conf_rank_utils import get_venues, find_similar_ven
 from utils.pipeline.filter_by_metadata_utils import automated_check_venue_and_peer_reviewed
 from utils.pipeline.screening import apply_decision
 from utils.pipeline.solve_disagreements import settle_agreements
+from utils.pipeline.llm_screening import screen_papers, download_pdfs, get_articles_from_db
 
 # Global state for tracking running tasks
 running_tasks = {
@@ -166,15 +167,15 @@ def get_next_step_after_skip(current_step):
     """Determine the next logical step after skipping a step"""
     step_map = {
         "Step 0: Generate Snowball Start": "Step 1: Start Iteration",
-        "Step 1: Start Iteration": "Step 2: Get BibTeX",
-        "Step 2: Get BibTeX": "Step 3: Assign Venue Ranks",
-        "Step 3: Assign Venue Ranks": "Step 4: Filter by Metadata",
-        "Step 4: Filter by Metadata": "Step 5: Filter by Title",
-        "Step 5: Filter by Title": "Step 6: Solve Title Disagreements",
-        "Step 6: Solve Title Disagreements": "Step 7: Filter by Content",
-        "Step 7: Filter by Content": "Step 8: Solve Content Disagreements",
-        "Step 8: Solve Content Disagreements": "Step 9: Remove Duplicates",
-        "Step 9: Remove Duplicates": "Step 10: Generate CSV"
+        "Step 1: Start Iteration": "Step 2: Remove Duplicates",
+        "Step 2: Remove Duplicates": "Step 3: Get BibTeX",
+        "Step 3: Get BibTeX": "Step 4: Assign Venue Ranks",
+        "Step 4: Assign Venue Ranks": "Step 5: Filter by Metadata",
+        "Step 5: Filter by Metadata": "Step 6: Filter by Title",
+        "Step 6: Filter by Title": "Step 7: Solve Title Disagreements",
+        "Step 7: Solve Title Disagreements": "Step 8: Filter by Content",
+        "Step 8: Filter by Content": "Step 9: Solve Content Disagreements",
+        "Step 9: Solve Content Disagreements": "Step 10: Generate CSV"
     }
     return step_map.get(current_step, None)
 
@@ -390,13 +391,13 @@ def get_workflow_info():
                         if max_selected_int == 0:
                             current_step = "Step 1-2: Initial Setup & BibTeX"
                         elif max_selected_int == 1:
-                            current_step = "Step 4: Filter by Metadata"
+                            current_step = "Step 5: Filter by Metadata"
                         elif max_selected_int == 2:
-                            current_step = "Step 5: Title Screening"
+                            current_step = "Step 6: Title Screening"
                         elif max_selected_int == 3:
                             # Only infer Step 7 if we're not on iteration 0
                             # (iteration 0 articles are auto-approved, but iteration > 0 articles need to go through the step)
-                            current_step = "Step 7: Content Screening"
+                            current_step = "Step 8: Content Screening"
                         else:
                             current_step = f"Step: Selection Stage {max_selected_int}"
                     except (ValueError, TypeError):
@@ -411,9 +412,9 @@ def get_workflow_info():
                     if all_articles:
                         has_bibtex = any(getattr(a, 'bibtex', '') for a in all_articles if hasattr(a, 'bibtex'))
                         if has_bibtex:
-                            current_step = "Step 3: Assign Venue Ranks"
+                            current_step = "Step 4: Assign Venue Ranks"
                         else:
-                            current_step = "Step 2: Get BibTeX"
+                            current_step = "Step 3: Get BibTeX"
                     else:
                         current_step = "Step 0: Generate Snowball Start"
                     
@@ -1359,7 +1360,7 @@ def delete_articles_without_id():
 
 @app.route('/workflow/get_bibtex', methods=['GET'])
 def get_bibtex_page():
-    """Page for Step 2: Get BibTeX"""
+    """Page for Step 3: Get BibTeX"""
     search_conf = load_search_conf()
     
     # Get defaults from config
@@ -1502,7 +1503,7 @@ def execute_get_bibtex():
                     update_workflow_state(
                         db_path=db_path,
                         current_iteration=current_iter,
-                        last_step="Step 2: Get BibTeX"
+                        last_step="Step 3: Get BibTeX"
                     )
                 
             except Exception as e:
@@ -1555,7 +1556,7 @@ def cancel_get_bibtex():
 
 @app.route('/workflow/generate_conf_rank', methods=['GET'])
 def generate_conf_rank_page():
-    """Page for Step 3: Generate Conf Rank"""
+    """Page for Step 4: Generate Conf Rank"""
     search_conf = load_search_conf()
     
     # Get workflow info
@@ -1571,7 +1572,7 @@ def generate_conf_rank_page():
     # Check if BibTeX step was skipped
     workflow_state = load_workflow_state()
     skipped_steps = workflow_state.get('skipped_steps', [])
-    bibtex_skipped = 'Step 2: Get BibTeX' in skipped_steps
+    bibtex_skipped = 'Step 3: Get BibTeX' in skipped_steps
     conf_rank_not_possible = bibtex_skipped
     
     return render_template('generate_conf_rank.html',
@@ -1807,7 +1808,7 @@ def save_venue_rank():
         update_workflow_state(
             db_path=db_path,
             current_iteration=current_iter,
-            last_step="Step 3: Assign Venue Ranks"
+            last_step="Step 4: Assign Venue Ranks"
         )
         
         return jsonify({
@@ -1821,7 +1822,7 @@ def save_venue_rank():
 
 @app.route('/workflow/filter_by_metadata', methods=['GET'])
 def filter_by_metadata_page():
-    """Page for Step 4: Filter by Metadata"""
+    """Page for Step 5: Filter by Metadata"""
     search_conf = load_search_conf()
     
     # Get workflow info
@@ -1839,8 +1840,8 @@ def filter_by_metadata_page():
     # Check if BibTeX or Generate Conf Rank steps were skipped
     workflow_state = load_workflow_state()
     skipped_steps = workflow_state.get('skipped_steps', [])
-    bibtex_skipped = 'Step 2: Get BibTeX' in skipped_steps
-    conf_rank_skipped = 'Step 3: Assign Venue Ranks' in skipped_steps
+    bibtex_skipped = 'Step 3: Get BibTeX' in skipped_steps
+    conf_rank_skipped = 'Step 4: Assign Venue Ranks' in skipped_steps
     venue_filter_disabled = bibtex_skipped or conf_rank_skipped
     
     return render_template('filter_by_metadata.html',
@@ -1873,8 +1874,8 @@ def get_articles_for_metadata_filter():
         # Check if BibTeX or Generate Conf Rank steps were skipped
         workflow_state = load_workflow_state()
         skipped_steps = workflow_state.get('skipped_steps', [])
-        bibtex_skipped = 'Step 2: Get BibTeX' in skipped_steps
-        conf_rank_skipped = 'Step 3: Assign Venue Ranks' in skipped_steps
+        bibtex_skipped = 'Step 3: Get BibTeX' in skipped_steps
+        conf_rank_skipped = 'Step 4: Assign Venue Ranks' in skipped_steps
         venue_filter_disabled = bibtex_skipped or conf_rank_skipped
         
         # If venue filtering is disabled (BibTeX or Conf Rank skipped), 
@@ -2232,7 +2233,7 @@ def save_metadata_filter_result():
         update_workflow_state(
             db_path=db_path,
             current_iteration=iteration,
-            last_step="Step 4: Filter by Metadata"
+            last_step="Step 5: Filter by Metadata"
         )
         
         return jsonify({
@@ -2246,7 +2247,7 @@ def save_metadata_filter_result():
 
 @app.route('/workflow/filter_by_title', methods=['GET'])
 def filter_by_title_page():
-    """Page for Step 5: Filter by Title"""
+    """Page for Step 6: Filter by Title"""
     search_conf = load_search_conf()
     
     # Get workflow info
@@ -2259,9 +2260,13 @@ def filter_by_title_page():
     # Get default rater from config
     default_rater = search_conf.get('rater', 'default') if search_conf else 'default'
     
+    # Get default topic from config
+    default_topic = search_conf.get('topic', '') if search_conf else ''
+    
     return render_template('filter_by_title.html',
                          default_iteration=default_iteration,
                          default_rater=default_rater,
+                         default_topic=default_topic,
                          workflow_info=workflow_info)
 
 
@@ -2368,7 +2373,7 @@ def save_title_filter_result():
         update_workflow_state(
             db_path=db_path,
             current_iteration=iteration,
-            last_step="Step 5: Filter by Title"
+            last_step="Step 6: Filter by Title"
         )
         
         return jsonify({
@@ -2382,9 +2387,169 @@ def save_title_filter_result():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/workflow/filter_by_title/prompts', methods=['GET'])
+def get_title_filter_prompts():
+    """Get default prompts for title filtering"""
+    try:
+        # Get prompt file paths
+        prompts_folder = os.path.join("utils", "prompts")
+        system_prompt_file = os.path.join(prompts_folder, "system_title_screening.txt")
+        user_prompt_file = os.path.join(prompts_folder, "user_title_screening.txt")
+        
+        # If the regular user prompt file doesn't exist, try the copy
+        if not os.path.exists(user_prompt_file):
+            user_prompt_file = os.path.join(prompts_folder, "user_title_screening copy.txt")
+        
+        system_prompt = ""
+        user_prompt = ""
+        
+        if os.path.exists(system_prompt_file):
+            with open(system_prompt_file, 'r', encoding='utf-8') as f:
+                system_prompt = f.read()
+        
+        if os.path.exists(user_prompt_file):
+            with open(user_prompt_file, 'r', encoding='utf-8') as f:
+                user_prompt = f.read()
+        
+        return jsonify({
+            'success': True,
+            'system_prompt': system_prompt,
+            'user_prompt': user_prompt
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/filter_by_title/run_llm_filtering', methods=['POST'])
+def run_title_llm_filtering():
+    """Execute LLM filtering for title screening"""
+    try:
+        import tempfile
+        # Support both JSON (for backwards compatibility) and form-data (for file uploads)
+        if request.is_json:
+            data = request.get_json()
+            api_key_file = data.get('api_key_file')  # Path string
+        else:
+            # Form data with file upload
+            data = request.form.to_dict()
+            api_key_file = None
+            
+            # Handle API key file upload
+            if 'api_key_file' in request.files:
+                uploaded_file = request.files['api_key_file']
+                if uploaded_file and uploaded_file.filename:
+                    # Save uploaded file to uploads folder
+                    filename = secure_filename(uploaded_file.filename)
+                    # Ensure it's a .txt file
+                    if not filename.endswith('.txt'):
+                        filename += '.txt'
+                    upload_path = os.path.join(UPLOAD_FOLDER, f"api_key_{filename}")
+                    uploaded_file.save(upload_path)
+                    api_key_file = upload_path
+            elif 'api_key_file_path' in data:
+                # User provided a path manually (server-side path)
+                api_key_file = data.get('api_key_file_path').strip() if data.get('api_key_file_path') else None
+        
+        iteration = int(data.get('iteration'))
+        rater = data.get('rater')
+        model = data.get('model', 'gpt-4o')
+        topic = data.get('topic')
+        system_prompt = data.get('system_prompt')
+        user_prompt = data.get('user_prompt')
+        
+        if not rater:
+            return jsonify({'error': 'Rater ID is required'}), 400
+        
+        if not topic:
+            return jsonify({'error': 'Topic is required'}), 400
+        
+        if not system_prompt or not user_prompt:
+            return jsonify({'error': 'Both system and user prompts are required'}), 400
+        
+        # Get database path from config
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'error': 'Database path not configured'}), 400
+        
+        db_path = search_conf['db_path']
+        
+        # Ensure screening table exists
+        db_manager = DBManager(db_path)
+        annotations_config = search_conf.get('annotations', [])
+        db_manager.create_screening_table(annotations_config)
+        
+        # Check if user wants to fill annotations
+        fill_annotations = data.get('fill_annotations', 'true').lower() == 'true' if isinstance(data.get('fill_annotations'), str) else data.get('fill_annotations', True)
+        
+        # Create temporary prompt files
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as sys_file:
+            sys_file.write(system_prompt)
+            system_prompt_file = sys_file.name
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as user_file:
+            user_file.write(user_prompt)
+            user_prompt_file = user_file.name
+        
+        try:
+            # Convert annotations dict to the format expected by screen_papers
+            # Only include annotations if user wants them filled
+            annotations_dict = {}
+            if fill_annotations and annotations_config:
+                # annotations_config is a list, convert to dict if needed
+                if isinstance(annotations_config, list):
+                    annotations_dict = {ann: ann for ann in annotations_config}  # Use annotation name as description
+                elif isinstance(annotations_config, dict):
+                    annotations_dict = annotations_config
+            
+            # Execute LLM screening
+            results = screen_papers(
+                rater_id=rater,
+                topic=topic,
+                db_path=db_path,
+                iteration=iteration,
+                stage="title",
+                model=model,
+                api_key=api_key_file,
+                annotations=annotations_dict,
+                system_prompt_file=system_prompt_file,
+                user_prompt_file=user_prompt_file
+            )
+            
+            # Update workflow state
+            update_workflow_state(
+                db_path=db_path,
+                current_iteration=iteration,
+                last_step="Step 6: Filter by Title"
+            )
+            
+            return jsonify({
+                'success': True,
+                'processed_count': len(results),
+                'message': f'LLM filtering completed. Processed {len(results)} article(s).'
+            })
+            
+        finally:
+            # Clean up temporary files
+            try:
+                if os.path.exists(system_prompt_file):
+                    os.unlink(system_prompt_file)
+                if os.path.exists(user_prompt_file):
+                    os.unlink(user_prompt_file)
+            except:
+                pass
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/workflow/filter_by_content', methods=['GET'])
 def filter_by_content_page():
-    """Page for Step 7: Filter by Content"""
+    """Page for Step 8: Filter by Content"""
     search_conf = load_search_conf()
     
     # Get workflow info
@@ -2400,9 +2565,13 @@ def filter_by_content_page():
     # Get annotations from config
     annotations = search_conf.get('annotations', []) if search_conf else []
     
+    # Get default topic from config
+    default_topic = search_conf.get('topic', '') if search_conf else ''
+    
     return render_template('filter_by_content.html',
                          default_iteration=default_iteration,
                          default_rater=default_rater,
+                         default_topic=default_topic,
                          workflow_info=workflow_info,
                          annotations=annotations)
 
@@ -2556,13 +2725,237 @@ def save_content_filter_result():
         update_workflow_state(
             db_path=db_path,
             current_iteration=iteration,
-            last_step="Step 7: Filter by Content"
+            last_step="Step 8: Filter by Content"
         )
         
         return jsonify({
             'success': True,
             'message': f'Content filter result saved for article {article_id}'
         })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/filter_by_content/prompts', methods=['GET'])
+def get_content_filter_prompts():
+    """Get default prompts for content filtering"""
+    try:
+        # Get prompt file paths
+        prompts_folder = os.path.join("utils", "prompts")
+        system_prompt_file = os.path.join(prompts_folder, "system_content_screening.txt")
+        user_prompt_file = os.path.join(prompts_folder, "user_content_screening.txt")
+        
+        # If the regular system prompt file doesn't exist, try the copy
+        if not os.path.exists(system_prompt_file):
+            system_prompt_file = os.path.join(prompts_folder, "system_content_screening copy.txt")
+        
+        system_prompt = ""
+        user_prompt = ""
+        
+        if os.path.exists(system_prompt_file):
+            with open(system_prompt_file, 'r', encoding='utf-8') as f:
+                system_prompt = f.read()
+        
+        if os.path.exists(user_prompt_file):
+            with open(user_prompt_file, 'r', encoding='utf-8') as f:
+                user_prompt = f.read()
+        
+        return jsonify({
+            'success': True,
+            'system_prompt': system_prompt,
+            'user_prompt': user_prompt
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/filter_by_content/download_pdfs', methods=['POST'])
+def download_content_pdfs():
+    """Download PDFs for content filtering"""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration'))
+        pdf_folder = data.get('pdf_folder')
+        
+        if not pdf_folder:
+            return jsonify({'error': 'PDF folder path is required'}), 400
+        
+        # Get database path from config
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'error': 'Database path not configured'}), 400
+        
+        db_path = search_conf['db_path']
+        
+        # Get articles that need content filtering (title-approved)
+        articles = get_articles_from_db(db_path, iteration, stage="content")
+        
+        if not articles:
+            return jsonify({
+                'success': True,
+                'downloaded_count': 0,
+                'failed_count': 0,
+                'message': 'No articles found for content filtering'
+            })
+        
+        # Create folder if it doesn't exist
+        os.makedirs(pdf_folder, exist_ok=True)
+        
+        # Download PDFs
+        download_pdfs(articles, pdf_folder)
+        
+        # Count downloaded and failed PDFs
+        downloaded_count = 0
+        failed_count = 0
+        for article in articles:
+            pdf_path = os.path.join(pdf_folder, f"{article.id}.pdf")
+            if os.path.exists(pdf_path):
+                downloaded_count += 1
+            else:
+                failed_count += 1
+        
+        return jsonify({
+            'success': True,
+            'downloaded_count': downloaded_count,
+            'failed_count': failed_count,
+            'message': f'PDF download completed. Downloaded {downloaded_count} PDF(s).'
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/filter_by_content/run_llm_filtering', methods=['POST'])
+def run_content_llm_filtering():
+    """Execute LLM filtering for content screening"""
+    try:
+        import tempfile
+        # Support both JSON (for backwards compatibility) and form-data (for file uploads)
+        api_key_file = None
+        
+        if request.is_json:
+            data = request.get_json()
+            api_key_file = data.get('api_key_file')  # Path string (can be None)
+        else:
+            # Form data with file upload
+            data = request.form.to_dict()
+            
+            # Handle API key file upload
+            if 'api_key_file' in request.files:
+                uploaded_file = request.files['api_key_file']
+                if uploaded_file and uploaded_file.filename:
+                    # Save uploaded file to uploads folder
+                    filename = secure_filename(uploaded_file.filename)
+                    # Ensure it's a .txt file
+                    if not filename.endswith('.txt'):
+                        filename += '.txt'
+                    upload_path = os.path.join(UPLOAD_FOLDER, f"api_key_{filename}")
+                    uploaded_file.save(upload_path)
+                    api_key_file = upload_path
+            elif 'api_key_file_path' in data:
+                # User provided a path manually
+                api_key_file = data.get('api_key_file_path').strip() if data.get('api_key_file_path') else None
+        
+        iteration = int(data.get('iteration'))
+        rater = data.get('rater')
+        model = data.get('model', 'gpt-4o')
+        pdf_folder = data.get('pdf_folder')
+        topic = data.get('topic')
+        system_prompt = data.get('system_prompt')
+        user_prompt = data.get('user_prompt')
+        
+        if not rater:
+            return jsonify({'error': 'Rater ID is required'}), 400
+        
+        if not pdf_folder:
+            return jsonify({'error': 'PDF folder path is required'}), 400
+        
+        if not topic:
+            return jsonify({'error': 'Topic is required'}), 400
+        
+        if not system_prompt or not user_prompt:
+            return jsonify({'error': 'Both system and user prompts are required'}), 400
+        
+        # Get database path from config
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'error': 'Database path not configured'}), 400
+        
+        db_path = search_conf['db_path']
+        
+        # Ensure screening table exists
+        db_manager = DBManager(db_path)
+        annotations_config = search_conf.get('annotations', [])
+        db_manager.create_screening_table(annotations_config)
+        
+        # Check if user wants to fill annotations
+        fill_annotations = data.get('fill_annotations', 'true').lower() == 'true' if isinstance(data.get('fill_annotations'), str) else data.get('fill_annotations', True)
+        
+        # Create temporary prompt files
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as sys_file:
+            sys_file.write(system_prompt)
+            system_prompt_file = sys_file.name
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as user_file:
+            user_file.write(user_prompt)
+            user_prompt_file = user_file.name
+        
+        try:
+            # Convert annotations dict to the format expected by screen_papers
+            # Only include annotations if user wants them filled
+            annotations_dict = {}
+            if fill_annotations and annotations_config:
+                # annotations_config is a list, convert to dict if needed
+                if isinstance(annotations_config, list):
+                    annotations_dict = {ann: ann for ann in annotations_config}  # Use annotation name as description
+                elif isinstance(annotations_config, dict):
+                    annotations_dict = annotations_config
+            
+            # Execute LLM screening
+            results = screen_papers(
+                rater_id=rater,
+                topic=topic,
+                db_path=db_path,
+                iteration=iteration,
+                stage="content",
+                model=model,
+                api_key=api_key_file,
+                annotations=annotations_dict,
+                article_folder=pdf_folder,
+                system_prompt_file=system_prompt_file,
+                user_prompt_file=user_prompt_file
+            )
+            
+            # Update workflow state
+            update_workflow_state(
+                db_path=db_path,
+                current_iteration=iteration,
+                last_step="Step 8: Filter by Content"
+            )
+            
+            return jsonify({
+                'success': True,
+                'processed_count': len(results),
+                'message': f'LLM filtering completed. Processed {len(results)} article(s).'
+            })
+            
+        finally:
+            # Clean up temporary files
+            try:
+                if os.path.exists(system_prompt_file):
+                    os.unlink(system_prompt_file)
+                if os.path.exists(user_prompt_file):
+                    os.unlink(user_prompt_file)
+            except:
+                pass
         
     except Exception as e:
         import traceback
@@ -2597,7 +2990,7 @@ def skip_workflow_step():
         update_data = []
         articles_updated = 0
         
-        if step_name == 'Step 4: Filter by Metadata':
+        if step_name == 'Step 5: Filter by Metadata':
             # Skip metadata filter: approve ALL articles in this iteration (set to METADATA_APPROVED)
             # When skipping Step 4, we bypass all metadata filtering, so all articles are approved
             articles = db_manager.get_iteration_data(iteration=current_iteration)
@@ -2617,7 +3010,7 @@ def skip_workflow_step():
                     update_data.append((article.id, SelectionStage.METADATA_APPROVED.value, "selected"))
                     articles_updated += 1
         
-        elif step_name == 'Step 5: Filter by Title':
+        elif step_name == 'Step 6: Filter by Title':
             # Skip title filter: approve all METADATA_APPROVED articles in screening table only
             # When skipping Step 5, we bypass title filtering, so all METADATA_APPROVED articles are approved
             # Only update screening table - iterations table will be updated during solve disagreements
@@ -2648,7 +3041,7 @@ def skip_workflow_step():
                 )
                 articles_updated += 1
         
-        elif step_name == 'Step 7: Filter by Content':
+        elif step_name == 'Step 8: Filter by Content':
             # Skip content filter: approve all TITLE_APPROVED articles in screening table only
             # When skipping Step 7, we bypass content filtering, so all TITLE_APPROVED articles are approved
             # Only update screening table - iterations table will be updated during solve disagreements
@@ -2715,7 +3108,7 @@ def skip_workflow_step():
 
 @app.route('/workflow/solve_title_disagreements', methods=['GET'])
 def solve_title_disagreements_page():
-    """Page for Step 6: Solve Title Disagreements"""
+    """Page for Step 7: Solve Title Disagreements"""
     search_conf = load_search_conf()
     
     # Get workflow info
@@ -2935,7 +3328,7 @@ def save_title_disagreement_decision():
         update_workflow_state(
             db_path=merged_db_path,
             current_iteration=iteration,
-            last_step="Step 6: Solve Title Disagreements"
+            last_step="Step 7: Solve Title Disagreements"
         )
         
         return jsonify({
@@ -2950,7 +3343,7 @@ def save_title_disagreement_decision():
 
 @app.route('/workflow/solve_content_disagreements', methods=['GET'])
 def solve_content_disagreements_page():
-    """Page for Step 8: Solve Content Disagreements"""
+    """Page for Step 9: Solve Content Disagreements"""
     search_conf = load_search_conf()
     
     # Get workflow info
@@ -3183,7 +3576,7 @@ def save_content_disagreement_decision():
         update_workflow_state(
             db_path=merged_db_path,
             current_iteration=iteration,
-            last_step="Step 8: Solve Content Disagreements"
+            last_step="Step 9: Solve Content Disagreements"
         )
         
         return jsonify({
@@ -3199,7 +3592,7 @@ def save_content_disagreement_decision():
 
 @app.route('/workflow/remove_duplicates', methods=['GET'])
 def remove_duplicates_page():
-    """Page for Step 9: Remove Duplicates"""
+    """Page for Step 2: Remove Duplicates"""
     # Get workflow info
     workflow_info = get_workflow_info()
     current_iteration = workflow_info.get('current_iteration') if workflow_info else None
@@ -3356,7 +3749,7 @@ def save_duplicate_decision():
         update_workflow_state(
             db_path=db_path,
             current_iteration=None,  # Don't change iteration
-            last_step="Step 9: Remove Duplicates"
+            last_step="Step 2: Remove Duplicates"
         )
         
         return jsonify({

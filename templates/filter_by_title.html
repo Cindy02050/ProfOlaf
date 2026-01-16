@@ -161,9 +161,102 @@
                                 </div>
                             </div>
                             
+                            <!-- Filtering Method Selection -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="fas fa-filter"></i> Filtering Method <span class="text-danger">*</span>
+                                </label>
+                                <div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="filterMethod" id="manualFilter" value="manual" checked>
+                                        <label class="form-check-label" for="manualFilter">
+                                            Manual Filtering
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="filterMethod" id="llmFilter" value="llm">
+                                        <label class="form-check-label" for="llmFilter">
+                                            LLM Filtering
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- LLM Filtering Options (hidden by default) -->
+                            <div id="llmOptions" style="display: none;">
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-robot"></i> LLM Configuration</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row mb-3">
+                                            <div class="col-md-6">
+                                                <label for="llmModel" class="form-label">
+                                                    Model <span class="text-danger">*</span>
+                                                </label>
+                                                <input type="text" class="form-control" id="llmModel" value="gpt-4o" required>
+                                                <div class="form-text">Model name (e.g., gpt-4o, gpt-3.5-turbo)</div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="apiKeyFile" class="form-label">
+                                                    API Key File
+                                                </label>
+                                                <div class="input-group">
+                                                    <input type="text" class="form-control" id="apiKeyFile" placeholder="path/to/api_key.txt">
+                                                    <input type="file" class="d-none" id="apiKeyFileInput" accept=".txt" onchange="handleApiKeyFileSelect(this)">
+                                                    <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('apiKeyFileInput').click()">
+                                                        <i class="fas fa-folder-open"></i> Browse
+                                                    </button>
+                                                </div>
+                                                <div class="form-text">Select API key file (or leave empty to use OPENAI_API_KEY environment variable)</div>
+                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="topic" class="form-label">
+                                                Topic <span class="text-danger">*</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="topic" value="{{ default_topic }}" required>
+                                            <div class="form-text">Topic for the LLM to focus on while screening</div>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="fillAnnotations" checked>
+                                                <label class="form-check-label" for="fillAnnotations">
+                                                    Fill annotations
+                                                </label>
+                                            </div>
+                                            <div class="form-text">If enabled, the LLM will fill annotation fields defined in the search configuration</div>
+                                        </div>
+                                        
+                                        <!-- Prompts Section -->
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                <i class="fas fa-file-text"></i> Prompts
+                                            </label>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary mb-2" id="loadPromptsBtn">
+                                                <i class="fas fa-sync"></i> Load Default Prompts
+                                            </button>
+                                            <div class="mb-2">
+                                                <label for="systemPrompt" class="form-label small">System Prompt:</label>
+                                                <textarea class="form-control font-monospace" id="systemPrompt" rows="5" style="font-size: 0.85rem;"></textarea>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label for="userPrompt" class="form-label small">User Prompt:</label>
+                                                <textarea class="form-control font-monospace" id="userPrompt" rows="3" style="font-size: 0.85rem;"></textarea>
+                                                <div class="form-text small">Use {title} and {topic} as placeholders</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <div class="d-flex gap-2">
                                 <button type="button" class="btn btn-primary" id="loadArticlesBtn">
                                     <i class="fas fa-search"></i> Load Articles
+                                </button>
+                                <button type="button" class="btn btn-success" id="runLlmFilterBtn" style="display: none;">
+                                    <i class="fas fa-robot"></i> Run LLM Filtering
                                 </button>
                                 <button type="button" class="btn btn-warning" id="skipBtn">
                                     <i class="fas fa-forward"></i> Skip Step
@@ -254,7 +347,55 @@
         let currentArticleIndex = 0;
         let currentIteration = null;
 
+        // Handle filter method change
+        document.querySelectorAll('input[name="filterMethod"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                const llmOptions = document.getElementById('llmOptions');
+                const loadArticlesBtn = document.getElementById('loadArticlesBtn');
+                const runLlmFilterBtn = document.getElementById('runLlmFilterBtn');
+                
+                if (this.value === 'llm') {
+                    llmOptions.style.display = 'block';
+                    loadArticlesBtn.style.display = 'none';
+                    runLlmFilterBtn.style.display = 'inline-block';
+                    loadDefaultPrompts();
+                } else {
+                    llmOptions.style.display = 'none';
+                    loadArticlesBtn.style.display = 'inline-block';
+                    runLlmFilterBtn.style.display = 'none';
+                }
+            });
+        });
+
+        // Load default prompts
+        function loadDefaultPrompts() {
+            fetch('/api/workflow/filter_by_title/prompts')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('systemPrompt').value = data.system_prompt || '';
+                        document.getElementById('userPrompt').value = data.user_prompt || '';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading prompts:', error);
+                });
+        }
+
+        document.getElementById('loadPromptsBtn').addEventListener('click', loadDefaultPrompts);
+
+        // Handle API key file selection
+        function handleApiKeyFileSelect(fileInput) {
+            if (fileInput.files && fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                // Note: Browsers only provide filename for security reasons
+                // User may need to adjust the path manually if needed
+                document.getElementById('apiKeyFile').value = file.name;
+            }
+        }
+
         document.getElementById('loadArticlesBtn').addEventListener('click', loadArticles);
+        document.getElementById('runLlmFilterBtn').addEventListener('click', runLlmFiltering);
         document.getElementById('approveBtn').addEventListener('click', () => handleDecision('approve'));
         document.getElementById('rejectBtn').addEventListener('click', () => handleDecision('reject'));
         document.getElementById('skipArticleBtn').addEventListener('click', skipArticle);
@@ -486,6 +627,97 @@
                 });
             }
         });
+
+        // Run LLM filtering
+        function runLlmFiltering() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            const rater = document.getElementById('rater').value.trim();
+            const model = document.getElementById('llmModel').value.trim();
+            const apiKeyFile = document.getElementById('apiKeyFile').value.trim();
+            const topic = document.getElementById('topic').value.trim();
+            const systemPrompt = document.getElementById('systemPrompt').value;
+            const userPrompt = document.getElementById('userPrompt').value;
+
+            if (isNaN(iteration) || iteration < 0) {
+                showError('Please enter a valid iteration number');
+                return;
+            }
+
+            if (!rater) {
+                showError('Rater ID is required');
+                return;
+            }
+
+            if (!model) {
+                showError('Model name is required');
+                return;
+            }
+
+            if (!topic) {
+                showError('Topic is required');
+                return;
+            }
+
+            if (!systemPrompt || !userPrompt) {
+                showError('Both system and user prompts are required');
+                return;
+            }
+
+            currentIteration = iteration;
+
+            // Show loading spinner
+            document.getElementById('loadingSpinner').style.display = 'block';
+            document.getElementById('setupSection').style.display = 'none';
+            document.getElementById('errorAlert').style.display = 'none';
+
+            // Use FormData to support file upload
+            const formData = new FormData();
+            formData.append('iteration', iteration);
+            formData.append('rater', rater);
+            formData.append('model', model);
+            formData.append('topic', topic);
+            formData.append('system_prompt', systemPrompt);
+            formData.append('user_prompt', userPrompt);
+            formData.append('fill_annotations', document.getElementById('fillAnnotations').checked ? 'true' : 'false');
+            
+            // Handle API key file upload
+            const apiKeyFileInput = document.getElementById('apiKeyFileInput');
+            if (apiKeyFileInput.files && apiKeyFileInput.files.length > 0) {
+                formData.append('api_key_file', apiKeyFileInput.files[0]);
+            } else if (apiKeyFile.trim()) {
+                // If user typed a path manually, send it as form data
+                formData.append('api_key_file_path', apiKeyFile.trim());
+            }
+
+            fetch('/api/workflow/filter_by_title/run_llm_filtering', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                document.getElementById('setupSection').style.display = 'block';
+
+                if (!data.success) {
+                    showError(data.error || 'Failed to run LLM filtering');
+                    return;
+                }
+
+                showSuccess(`LLM filtering completed! Processed ${data.processed_count || 0} article(s).`);
+                // Optionally reload articles to see the results
+                setTimeout(() => {
+                    document.getElementById('manualFilter').checked = true;
+                    document.getElementById('llmOptions').style.display = 'none';
+                    document.getElementById('loadArticlesBtn').style.display = 'inline-block';
+                    document.getElementById('runLlmFilterBtn').style.display = 'none';
+                }, 2000);
+            })
+            .catch(error => {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                document.getElementById('setupSection').style.display = 'block';
+                showError('Error running LLM filtering: ' + error.message);
+            });
+        }
     </script>
 </body>
 </html>

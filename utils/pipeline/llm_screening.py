@@ -19,7 +19,11 @@ from ..article_processing.shared_utils import (
 
 from ..article_processing.download_pdfs import download_pdf
 
-DOWNLOAD_FOLDER = "articles"
+PROMPTS_FOLDER = "prompts"
+SYSTEM_PROMPT_FILE = os.path.join(PROMPTS_FOLDER, "system_content_screening.txt")
+USER_CONTENT_PROMPT_FILE = os.path.join(PROMPTS_FOLDER, "user_content_screening.txt")
+SYSTEM_TITLE_PROMPT_FILE = os.path.join(PROMPTS_FOLDER, "system_title_screening.txt")
+USER_TITLE_PROMPT_FILE = os.path.join(PROMPTS_FOLDER, "user_title_screening.txt")
 
 class BaseScreeningResult(BaseModel):
     title: str = Field(description="The title of the paper")
@@ -69,7 +73,7 @@ def ask_model(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt,},
             ],
-            text_format=DynamicScreeningResult,
+            text_format=ScreeningResult,
         )
     except json.JSONDecodeError as e:
         raise ValueError(f"Failed to parse JSON response: {e}\nResponse: {response_text}")
@@ -77,6 +81,13 @@ def ask_model(
         raise RuntimeError(f"Error calling OpenAI API: {e}")
 
     return dict(response.output_parsed)
+
+def process_api_key(api_key: Optional[str]):
+    if api_key is None:
+        return os.getenv("OPENAI_API_KEY")
+    elif api_key.endswith(".txt"):
+        return open(api_key, "r").read().strip()
+    return api_key
 
 def screen_papers(
     rater_id: str,
@@ -88,22 +99,27 @@ def screen_papers(
     api_key: Optional[str] = None,
     temperature: float = 0.7,
     annotations: dict[str, str] = {},
+    article_folder: Optional[str] = None,
+    system_prompt_file: Optional[str] = None,
+    user_prompt_file: Optional[str] = None,
 ):
     articles = get_articles_from_db(db_path, iteration, stage)
+    api_key = process_api_key(api_key)
     results = []
     for article in articles:
         content = ""
         keep_key = "keep_title"
         reason_key = "title_reason"
         if stage == "content":
-            content = PDFProcessor.extract_text_from_pdf(os.path.join(DOWNLOAD_FOLDER, f"{article.id}.pdf"))
+            content = PDFProcessor.extract_text_from_pdf(os.path.join(article_folder, f"{article.id}.pdf"))
             keep_key = "keep_content"
             reason_key = "content_reason"
-        system_prompt_file = "system_content_screening.txt" if stage == "content" else "system_title_screening.txt"
-        user_prompt_file = "user_content_screening.txt" if stage == "content" else "user_title_screening.txt"
+        if system_prompt_file is None:
+            system_prompt_file = SYSTEM_CONTENT_PROMPT_FILE if stage == "content" else SYSTEM_TITLE_PROMPT_FILE
+        if user_prompt_file is None:
+            user_prompt_file = USER_CONTENT_PROMPT_FILE if stage == "content" else USER_TITLE_PROMPT_FILE
         system_prompt = open(system_prompt_file, "r").read()
-        user_prompt = open(user_prompt_file, "r").read()
-        user_prompt = user_prompt.format(title=article.title, content=content, topic=topic)
+        user_prompt = open(user_prompt_file, "r").read().format(title=article.title, content=content, topic=topic)
         result = ask_model(system_prompt, user_prompt, model, api_key, temperature, annotations=annotations)
         result["id"] = article.id
         result["rater"] = rater_id
@@ -128,38 +144,38 @@ def screen_papers(
         )
     return results
 
-def download_manually(articles):
+def download_manually(articles, article_folder: str):
     for article in articles:
         response = input("Have you completed the download? (y/n): ").lower().strip()
-            if response in ['y', 'yes']:
-                file_path = os.path.join(DOWNLOAD_FOLDER, f"{article_id}.pdf")
-                if os.path.exists(file_path) and is_valid_pdf(file_path):
-                    print(f"✓ File {article_id}.pdf verified successfully!")
-                    break
-                else:
-                    if os.path.exists(file_path):
-                        print(f"✗ File {article_id}.pdf exists but is not a valid PDF. \
-                            Please ensure it's a valid PDF file.")
-                    else:
-                        print(f"✗ File {article_id}.pdf not found. \
-                            Please ensure it's saved correctly.")
-                    continue
-            elif response in ['n', 'no']:
-                print("Please complete the download and try again.")
-                continue
+        if response in ['y', 'yes']:
+            file_path = os.path.join(article_folder, f"{article_id}.pdf")
+            if os.path.exists(file_path) and is_valid_pdf(file_path):
+                print(f"✓ File {article_id}.pdf verified successfully!")
+                break
             else:
-                print("Please answer with 'y' or 'n'.")
+                if os.path.exists(file_path):
+                    print(f"✗ File {article_id}.pdf exists but is not a valid PDF. \
+                        Please ensure it's a valid PDF file.")
+                else:
+                    print(f"✗ File {article_id}.pdf not found. \
+                        Please ensure it's saved correctly.")
+                continue
+        elif response in ['n', 'no']:
+            print("Please complete the download and try again.")
+            continue
+        else:
+            print("Please answer with 'y' or 'n'.")
 
-    print(f"\nDownload complete. Files saved to: {DOWNLOAD_FOLDER}/")
+    print(f"\nDownload complete. Files saved to: {article_folder}/")
 
-def download_pdfs(articles):
+def download_pdfs(articles, article_folder: str):
     failed_downloads = []
     for article in tqdm(articles, desc="Downloading PDFs"):
         url = article.eprint_url or article.pub_url
         if not url:
             failed_downloads.append(article)
             continue
-        output_file = os.path.join(DOWNLOAD_FOLDER, f"{article.id}.pdf")
+        output_file = os.path.join(article_folder, f"{article.id}.pdf")
         if os.path.exists(output_file):
             continue
         if download_pdf(url, output_file):

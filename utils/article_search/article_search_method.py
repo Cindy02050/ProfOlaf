@@ -188,12 +188,14 @@ class DBLPSearchMethod(ArticleSearchMethod):
         if info is None:
             #print(f"{DBLP_SEARCH_TAG} No valid venue found for", query)
             return None
-        return {
-            "title": info["title"],
-            "venue": info["venue"],
-            "pub_year": info["year"],
-            "key": info["key"],
-        }
+        return ArticleData(
+            id=hashlib.sha256(info["title"].encode()).hexdigest(),
+            title=info["title"],
+            venue=info["venue"],
+            pub_year=info["year"],
+            key=info["key"],
+            search_method=self.name,
+        )
     
     def get_bibtex(self, article: ArticleData):
         dblp_data = self.search(article.title)
