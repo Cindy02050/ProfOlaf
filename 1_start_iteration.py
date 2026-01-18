@@ -19,7 +19,7 @@ from utils.article_search_method import (
     SearchMethod,
 )
 
-from utils.start_iteration_utils import get_articles
+from utils.pipeline.start_iteration_utils import get_articles, repair_references
 
 
 load_dotenv()
@@ -37,6 +37,12 @@ def parse_args():
         default=search_conf["search_method"],
         choices=[method.value for method in SearchMethod]
     )
+    parser.add_argument(
+        '--repair', 
+        help='repair method for broken references', 
+        type=str,
+        default="",
+        choices=["remove", "manual"])
     parser.add_argument('--verbose', action='store_true')  
     args = parser.parse_args()
     return args
@@ -65,3 +71,11 @@ if __name__ == "__main__":
     search_method_instance = SearchMethod(args.search_method).create_instance()
     article_search = ArticleSearch(search_method_instance)
     get_articles(args.iteration, initial_pubs, db_manager, article_search, args.verbose)
+    
+    if args.repair == "manual":
+        repair_references(args.iteration, db_manager, args.verbose)
+    elif args.repair == "remove":
+        db_manager.clear_unidentified_articles(args.iteration)
+    else:
+        print("Invalid repair method:", args.repair)
+        sys.exit(1)

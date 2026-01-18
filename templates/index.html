@@ -106,6 +106,86 @@
                     </div>
                 </div>
 
+                <!-- Analysis Tools Section -->
+                <div class="row g-4 mt-2">
+                    <div class="col-12">
+                        <h4 class="mb-3"><i class="fas fa-microscope"></i> Analysis Tools</h4>
+                        <p class="text-muted mb-4">Tools for analyzing the final set of papers after snowballing iterations are complete.</p>
+                    </div>
+                    
+                    <!-- Generate Analysis Config Card -->
+                    <div class="col-md-3">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-file-code fa-3x text-success"></i>
+                                </div>
+                                <h5 class="card-title">Analysis Config</h5>
+                                <p class="card-text text-muted small">
+                                    Generate configuration file for analysis tools
+                                </p>
+                                <a href="{{ url_for('generate_analysis_conf_route') }}" class="btn btn-success">
+                                    <i class="fas fa-cog"></i> Generate Config
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Download PDFs Card -->
+                    <div class="col-md-3">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-download fa-3x text-info"></i>
+                                </div>
+                                <h5 class="card-title">Download PDFs</h5>
+                                <p class="card-text text-muted small">
+                                    Download PDFs from CSV file for analysis
+                                </p>
+                                <a href="{{ url_for('download_pdfs_analysis_page') }}" class="btn btn-info">
+                                    <i class="fas fa-file-pdf"></i> Download PDFs
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Task Assistant Card -->
+                    <div class="col-md-3">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-robot fa-3x text-warning"></i>
+                                </div>
+                                <h5 class="card-title">Task Assistant</h5>
+                                <p class="card-text text-muted small">
+                                    LLM-powered Q&A system for PDF documents
+                                </p>
+                                <a href="{{ url_for('task_assistant_page') }}" class="btn btn-warning">
+                                    <i class="fas fa-comments"></i> Task Assistant
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Topic Modeling Card -->
+                    <div class="col-md-3">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-project-diagram fa-3x text-danger"></i>
+                                </div>
+                                <h5 class="card-title">Topic Modeling</h5>
+                                <p class="card-text text-muted small">
+                                    Perform hierarchical topic modeling on PDFs
+                                </p>
+                                <a href="{{ url_for('topic_modeling_page') }}" class="btn btn-danger">
+                                    <i class="fas fa-sitemap"></i> Topic Modeling
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Info Card -->
                 <div class="card shadow mt-4">
                     <div class="card-body">

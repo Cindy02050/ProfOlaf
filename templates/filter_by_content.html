@@ -966,6 +966,9 @@
             downloadStatus.style.display = 'block';
             downloadStatus.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle"></i> Downloading PDFs, please wait...</div>';
 
+            // Store pdfFolder for use in verification function
+            window.currentPdfFolder = pdfFolder;
+
             fetch('/api/workflow/filter_by_content/download_pdfs', {
                 method: 'POST',
                 headers: {
@@ -986,7 +989,60 @@
                     return;
                 }
 
-                downloadStatus.innerHTML = `<div class="alert alert-success"><i class="fas fa-check-circle"></i> PDF download completed! Downloaded ${data.downloaded_count || 0} PDF(s). ${data.failed_count > 0 ? `${data.failed_count} failed.` : ''}</div>`;
+                let statusHtml = `<div class="alert alert-${data.failed_count > 0 ? 'warning' : 'success'}"><i class="fas fa-${data.failed_count > 0 ? 'exclamation-triangle' : 'check-circle'}"></i> ${data.message}</div>`;
+                
+                // Show failed downloads if any
+                if (data.failed_downloads && data.failed_downloads.length > 0) {
+                    statusHtml += `
+                        <div class="mt-3">
+                            <h6><i class="fas fa-exclamation-triangle"></i> Failed Downloads - Manual Download Required</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered">
+                                    <thead>
+                                        <tr>
+                                            <th>Article ID</th>
+                                            <th>Title</th>
+                                            <th>URL</th>
+                                            <th>Expected Filename</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                    `;
+                    data.failed_downloads.forEach((failed, index) => {
+                        statusHtml += `
+                            <tr id="failed-row-${index}">
+                                <td><code>${escapeHtml(failed.article_id)}</code></td>
+                                <td>${escapeHtml(failed.title)}</td>
+                                <td><a href="${escapeHtml(failed.url)}" target="_blank" class="btn btn-sm btn-link p-0">${escapeHtml(failed.url)} <i class="fas fa-external-link-alt"></i></a></td>
+                                <td><code>${escapeHtml(failed.expected_filename)}</code></td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="verifyManualDownload('${escapeHtml(failed.article_id)}', '${escapeHtml(pdfFolder)}', ${index})">
+                                        <i class="fas fa-check"></i> Verify Download
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    statusHtml += `
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="alert alert-info mt-2">
+                                <i class="fas fa-info-circle"></i> 
+                                <strong>Instructions:</strong> 
+                                <ol class="mb-0">
+                                    <li>Click on the URL to open the article in a new tab</li>
+                                    <li>Manually download the PDF</li>
+                                    <li>Save it as <code>[Article ID].pdf</code> in the folder: <code>${escapeHtml(pdfFolder)}</code></li>
+                                    <li>Click "Verify Download" to confirm the file exists</li>
+                                </ol>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                downloadStatus.innerHTML = statusHtml;
             })
             .catch(error => {
                 downloadBtn.disabled = false;
@@ -1102,9 +1158,49 @@
         }
 
         function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // Verify manual download
+        function verifyManualDownload(articleId, pdfFolder, rowIndex) {
+            fetch('/api/workflow/filter_by_content/verify_pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    article_id: articleId,
+                    pdf_folder: pdfFolder
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const row = document.getElementById(`failed-row-${rowIndex}`);
+                if (!row) return;
+                
+                if (data.success && data.exists && data.valid) {
+                    // File exists and is valid - mark as verified
+                    row.classList.remove('table-warning');
+                    row.classList.add('table-success');
+                    const verifyBtn = row.querySelector('button');
+                    if (verifyBtn) {
+                        verifyBtn.disabled = true;
+                        verifyBtn.innerHTML = '<i class="fas fa-check-circle"></i> Verified';
+                        verifyBtn.classList.remove('btn-primary');
+                        verifyBtn.classList.add('btn-success');
+                    }
+                } else if (data.success && data.exists && !data.valid) {
+                    alert(`File ${articleId}.pdf exists but is not a valid PDF. Please ensure it's a valid PDF file.`);
+                } else {
+                    alert(`File ${articleId}.pdf not found. Please ensure it's saved correctly as ${articleId}.pdf in the folder: ${pdfFolder}`);
+                }
+            })
+            .catch(error => {
+                alert('Error verifying download: ' + error.message);
+            });
         }
 
         // Convert URL to PDF format for viewing

@@ -166,8 +166,18 @@
                                         <div class="form-text">Add database files to compare. With 1 database, decisions will be auto-applied. With 2+ databases, disagreements will be shown for resolution. The main database is already included. Use Browse to select database files from your file system.</div>
                                     </div>
 
+                                    <div class="mb-3">
+                                        <label for="mergedDbName" class="form-label">
+                                            <i class="fas fa-database"></i> Merged Database Name <span class="text-danger">*</span>
+                                        </label>
+                                        <input type="text" class="form-control" id="mergedDbName" 
+                                               placeholder="e.g., merged_content_screening.db" 
+                                               value="merged_content_screening.db" required>
+                                        <div class="form-text">Name for the resulting merged database. All tables will be copied from the first database, and screening tables from all databases will be merged.</div>
+                                    </div>
+
                                     <button type="button" class="btn btn-primary btn-lg" id="findDisagreementsBtn">
-                                        <i class="fas fa-search"></i> Find Disagreements
+                                        <i class="fas fa-code-branch"></i> Merge Databases and Find Disagreements
                                     </button>
                                 </div>
                             </div>
@@ -282,6 +292,7 @@
         let currentDisagreementIndex = 0;
         let dbPaths = [];
         let currentIteration = null;
+        let mergedDbPath = null;
 
         // Add database input
         function addDbInput() {
@@ -369,6 +380,12 @@
                 return;
             }
 
+            const mergedDbName = document.getElementById('mergedDbName').value.trim();
+            if (!mergedDbName) {
+                showError('Please enter a name for the merged database');
+                return;
+            }
+
             currentIteration = iteration;
 
             // Show loading spinner
@@ -377,17 +394,42 @@
             document.getElementById('disagreementSection').style.display = 'none';
             document.getElementById('errorAlert').style.display = 'none';
             document.getElementById('completionSection').style.display = 'none';
+            document.getElementById('loadingSpinner').querySelector('p').textContent = 'Merging databases...';
 
-            // Find disagreements
-            fetch('/api/workflow/solve_content_disagreements/find_disagreements', {
+            // First, merge databases
+            fetch('/api/workflow/solve_content_disagreements/merge_databases', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    iteration: iteration,
-                    db_paths: dbPaths
+                    db_paths: dbPaths,
+                    merged_db_name: mergedDbName
                 })
+            })
+            .then(response => response.json())
+            .then(mergeData => {
+                if (!mergeData.success) {
+                    document.getElementById('loadingSpinner').style.display = 'none';
+                    showError(mergeData.error || 'Failed to merge databases');
+                    document.getElementById('setupSection').style.display = 'block';
+                    return;
+                }
+
+                mergedDbPath = mergeData.merged_db_path;
+
+                // Now find disagreements from merged database
+                document.getElementById('loadingSpinner').querySelector('p').textContent = 'Finding disagreements...';
+                return fetch('/api/workflow/solve_content_disagreements/find_disagreements', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        iteration: iteration,
+                        merged_db_path: mergedDbPath
+                    })
+                });
             })
             .then(response => response.json())
             .then(data => {
@@ -688,7 +730,7 @@
                     article_id: disagreement.id,
                     iteration: currentIteration,
                     decision: decision,
-                    db_paths: dbPaths,
+                    merged_db_path: mergedDbPath,
                     selected_reasonings: selectedReasonings,
                     selected_annotations: selectedAnnotations
                 })

@@ -324,7 +324,7 @@ class DBManager:
         except Exception as e:
             self.conn.rollback()
             raise ValueError(f"Failed to update iteration data: {e}")
-         
+
     def update_batch_iteration_data(self, iteration: int, update_data: List[Tuple[str, any, str]]):
         table_name = "iterations"
         try:
@@ -358,6 +358,15 @@ class DBManager:
         except Exception as e:
             self.conn.rollback()
             raise ValueError(f"Failed to delete batch iteration data: {e}")
+
+    def clear_unidentified_articles(self, iteration: int):
+        table_name = "iterations"
+        try:
+            self.cursor.execute(f"DELETE FROM {table_name} WHERE id = '' AND iteration = ?", (iteration,))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to clear unidentified articles: {e}")
 
     # --------------------------- Screening Table Methods --------------------------
     def create_screening_table(self, annotations: List[str]):

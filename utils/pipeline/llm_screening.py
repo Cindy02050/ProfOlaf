@@ -1,10 +1,11 @@
 import sqlite3
 import json
 import os
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from openai import OpenAI
-
+from tqdm import tqdm
 from pydantic import BaseModel, Field, create_model
 
 from ..db_management import DBManager, SelectionStage
@@ -17,7 +18,7 @@ from ..article_processing.shared_utils import (
     truncate_text,
 )
 
-from ..article_processing.download_pdfs import download_pdf
+from ..article_processing.download_pdfs import download_pdf, is_valid_pdf
 
 PROMPTS_FOLDER = "prompts"
 SYSTEM_PROMPT_FILE = os.path.join(PROMPTS_FOLDER, "system_content_screening.txt")
@@ -65,6 +66,8 @@ def ask_model(
 
     if len(annotations.keys()) > 0:
         ScreeningResult = update_screening_result_class(annotations)
+    else:
+        ScreeningResult = BaseScreeningResult
     client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
     try:
         response = client.responses.parse(
@@ -148,16 +151,16 @@ def download_manually(articles, article_folder: str):
     for article in articles:
         response = input("Have you completed the download? (y/n): ").lower().strip()
         if response in ['y', 'yes']:
-            file_path = os.path.join(article_folder, f"{article_id}.pdf")
+            file_path = os.path.join(article_folder, f"{article.id}.pdf")
             if os.path.exists(file_path) and is_valid_pdf(file_path):
-                print(f"✓ File {article_id}.pdf verified successfully!")
+                print(f"✓ File {article.id}.pdf verified successfully!")
                 break
             else:
                 if os.path.exists(file_path):
-                    print(f"✗ File {article_id}.pdf exists but is not a valid PDF. \
+                    print(f"✗ File {article.id}.pdf exists but is not a valid PDF. \
                         Please ensure it's a valid PDF file.")
                 else:
-                    print(f"✗ File {article_id}.pdf not found. \
+                    print(f"✗ File {article.id}.pdf not found. \
                         Please ensure it's saved correctly.")
                 continue
         elif response in ['n', 'no']:
@@ -168,7 +171,18 @@ def download_manually(articles, article_folder: str):
 
     print(f"\nDownload complete. Files saved to: {article_folder}/")
 
-def download_pdfs(articles, article_folder: str):
+def download_pdfs(articles, article_folder: str, skip_manual_prompt: bool = False):
+    """
+    Download PDFs for articles.
+    
+    Args:
+        articles: List of articles to download PDFs for
+        article_folder: Folder to save PDFs to
+        skip_manual_prompt: If True, return failed downloads instead of prompting user
+    
+    Returns:
+        List of failed article downloads (if skip_manual_prompt=True), otherwise None
+    """
     failed_downloads = []
     for article in tqdm(articles, desc="Downloading PDFs"):
         url = article.eprint_url or article.pub_url
@@ -177,7 +191,12 @@ def download_pdfs(articles, article_folder: str):
             continue
         output_file = os.path.join(article_folder, f"{article.id}.pdf")
         if os.path.exists(output_file):
-            continue
+            # Verify existing file is valid
+            if is_valid_pdf(output_file):
+                continue
+            else:
+                # Remove invalid PDF and retry
+                os.remove(output_file)
         if download_pdf(url, output_file):
             if is_valid_pdf(output_file):
                 print(f"Successfully downloaded and verified: {output_file}")
@@ -188,7 +207,12 @@ def download_pdfs(articles, article_folder: str):
                 failed_downloads.append(article)
         else:
             failed_downloads.append(article)
+    
     if failed_downloads:
-        print("\nFailed downloads:")
-        download_manually(failed_downloads)
-        
+        if skip_manual_prompt:
+            return failed_downloads
+        else:
+            print("\nFailed downloads:")
+            download_manually(failed_downloads, article_folder)
+    
+    return failed_downloads if skip_manual_prompt else None

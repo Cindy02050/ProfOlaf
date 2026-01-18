@@ -11,7 +11,7 @@ from flask import Flask, render_template, request, jsonify, flash, redirect, url
 from pathlib import Path
 from collections import defaultdict
 from utils.db_management import DBManager, SelectionStage, initialize_db
-from utils.article_search.article_search_method import SearchMethod, ArticleSearch
+from utils.article_search.article_search_method import SearchMethod, ArticleSearch, SemanticScholarSearchMethod, GoogleScholarSearchMethod, DBLPSearchMethod
 from werkzeug.utils import secure_filename
 
 # Import from pipeline modules
@@ -23,6 +23,7 @@ from utils.pipeline.filter_by_metadata_utils import automated_check_venue_and_pe
 from utils.pipeline.screening import apply_decision
 from utils.pipeline.solve_disagreements import settle_agreements
 from utils.pipeline.llm_screening import screen_papers, download_pdfs, get_articles_from_db
+from utils.article_processing.download_pdfs import is_valid_pdf
 
 # Global state for tracking running tasks
 running_tasks = {
@@ -67,6 +68,8 @@ app.secret_key = os.urandom(24)
 # Configuration file path
 SEARCH_CONF_PATH = "search_conf.json"
 WORKFLOW_STATE_PATH = "workflow_state.json"
+ANALYSIS_CONF_PATH = "analysis_conf.json"
+LLM_CONFIG_PATH = os.path.join("utils", "article_llm_analysis", "llm_config.json")
 
 
 def load_workflow_state():
@@ -1277,7 +1280,8 @@ def check_articles_without_id():
             articles_data.append({
                 'title': article.title or 'No title',
                 'venue': article.venue or '',
-                'pub_year': article.pub_year or ''
+                'pub_year': str(article.pub_year) if article.pub_year else '',
+                'authors': article.authors or ''
             })
         
         return jsonify({
@@ -1311,34 +1315,22 @@ def delete_articles_without_id():
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
         
-        # Get articles without IDs
+        # Get count before deletion
         articles_no_id = db_manager.get_iteration_data(
             iteration=iteration,
             id__empty=True
         )
+        deleted_count = len(articles_no_id)
         
-        if not articles_no_id:
+        if deleted_count == 0:
             return jsonify({
                 'success': True,
                 'message': 'No articles without IDs found',
                 'deleted_count': 0
             })
         
-        # Delete articles by ID (empty string or None)
-        deleted_count = 0
-        for article in articles_no_id:
-            try:
-                # Delete from iterations table
-                db_manager.cursor.execute(
-                    "DELETE FROM iterations WHERE id = ? AND iteration = ?",
-                    (article.id if article.id else '', iteration)
-                )
-                deleted_count += 1
-            except Exception as e:
-                print(f"Error deleting article: {e}")
-                continue
-        
-        db_manager.conn.commit()
+        # Use the clear_unidentified_articles method
+        db_manager.clear_unidentified_articles(iteration)
         
         # Clear the task state if this was the iteration we just processed
         task_state = running_tasks['start_iteration']
@@ -1349,6 +1341,219 @@ def delete_articles_without_id():
         return jsonify({
             'success': True,
             'message': f'Successfully deleted {deleted_count} article(s) without IDs',
+            'deleted_count': deleted_count
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/start_iteration/search_article', methods=['POST'])
+def search_article_for_repair():
+    """Search for an article by title using different search methods"""
+    try:
+        data = request.get_json()
+        title = data.get('title', '').strip()
+        search_methods_str = data.get('search_methods', ['semantic_scholar', 'google_scholar', 'dblp'])
+        
+        if not title:
+            return jsonify({'error': 'Title is required'}), 400
+        
+        # Initialize search methods
+        search_methods_map = {
+            'semantic_scholar': SemanticScholarSearchMethod(),
+            'google_scholar': GoogleScholarSearchMethod(),
+            'dblp': DBLPSearchMethod()
+        }
+        
+        results = []
+        for method_name in search_methods_str:
+            if method_name not in search_methods_map:
+                continue
+            
+            try:
+                search_method = search_methods_map[method_name]
+                found_articles = search_method.search(title)
+                
+                if found_articles and len(found_articles) > 0:
+                    article = found_articles[0]
+                    results.append({
+                        'method': method_name,
+                        'article_id': article.id,
+                        'title': article.title,
+                        'authors': article.authors,
+                        'venue': article.venue,
+                        'pub_year': article.pub_year,
+                        'pub_url': article.pub_url,
+                        'found': True
+                    })
+                    break  # Stop at first successful search
+                else:
+                    results.append({
+                        'method': method_name,
+                        'found': False
+                    })
+            except Exception as e:
+                results.append({
+                    'method': method_name,
+                    'found': False,
+                    'error': str(e)
+                })
+        
+        if results and any(r.get('found') for r in results):
+            return jsonify({
+                'success': True,
+                'found': True,
+                'results': results
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'found': False,
+                'results': results,
+                'message': 'No article found with any search method'
+            })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/start_iteration/repair_article', methods=['POST'])
+def repair_article_id():
+    """Update an article's ID after finding it via search"""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration', 0))
+        old_title = data.get('title', '').strip()
+        new_article_id = data.get('article_id', '').strip()
+        
+        if iteration < 1:
+            return jsonify({'error': 'Valid iteration number is required'}), 400
+        
+        if not old_title:
+            return jsonify({'error': 'Title is required'}), 400
+        
+        if not new_article_id:
+            return jsonify({'error': 'Article ID is required'}), 400
+        
+        # Get database path from config
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'error': 'Database path not configured'}), 400
+        
+        db_path = search_conf['db_path']
+        db_manager = DBManager(db_path)
+        
+        # Find the article by title in the iteration (with no ID)
+        articles = db_manager.get_iteration_data(
+            iteration=iteration,
+            id__empty=True
+        )
+        
+        # Find matching article by title
+        matching_article = None
+        for article in articles:
+            if article.title == old_title:
+                matching_article = article
+                break
+        
+        if not matching_article:
+            return jsonify({'error': f'Article with title "{old_title}" not found in iteration {iteration}'}), 404
+        
+        # Update the article's ID
+        matching_article.id = new_article_id
+        db_manager.insert_iteration_data([matching_article])
+        
+        # Update seen_titles table to link title to new ID
+        db_manager.insert_seen_titles_data([(matching_article.title.lower(), new_article_id)])
+        
+        # Delete the old entry (with empty ID)
+        db_manager.cursor.execute(
+            "DELETE FROM iterations WHERE id = ? AND iteration = ? AND title = ?",
+            ('', iteration, old_title)
+        )
+        db_manager.conn.commit()
+        
+        # Clear the task state if this was the iteration we just processed
+        task_state = running_tasks['start_iteration']
+        if task_state.get('articles_without_id_iteration') == iteration:
+            # Re-check count
+            remaining = db_manager.get_iteration_data(
+                iteration=iteration,
+                id__empty=True
+            )
+            task_state['articles_without_id_count'] = len(remaining)
+            if len(remaining) == 0:
+                task_state['articles_without_id_iteration'] = None
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully repaired article: {old_title}',
+            'article_id': new_article_id
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/start_iteration/delete_single_article', methods=['POST'])
+def delete_single_article_without_id():
+    """Delete a single article without ID from a specific iteration"""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration', 0))
+        title = data.get('title', '').strip()
+        
+        if iteration < 1:
+            return jsonify({'error': 'Valid iteration number is required'}), 400
+        
+        if not title:
+            return jsonify({'error': 'Title is required'}), 400
+        
+        # Get database path from config
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'error': 'Database path not configured'}), 400
+        
+        db_path = search_conf['db_path']
+        db_manager = DBManager(db_path)
+        
+        # Delete the article by title and iteration (with empty ID)
+        db_manager.cursor.execute(
+            "DELETE FROM iterations WHERE id = ? AND iteration = ? AND title = ?",
+            ('', iteration, title)
+        )
+        deleted_count = db_manager.cursor.rowcount
+        db_manager.conn.commit()
+        
+        if deleted_count == 0:
+            return jsonify({
+                'success': False,
+                'message': 'Article not found',
+                'error': f'Article with title "{title}" not found in iteration {iteration}'
+            }), 404
+        
+        # Clear the task state if this was the iteration we just processed
+        task_state = running_tasks['start_iteration']
+        if task_state.get('articles_without_id_iteration') == iteration:
+            # Re-check count
+            remaining = db_manager.get_iteration_data(
+                iteration=iteration,
+                id__empty=True
+            )
+            task_state['articles_without_id_count'] = len(remaining)
+            if len(remaining) == 0:
+                task_state['articles_without_id_iteration'] = None
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deleted article: {title}',
             'deleted_count': deleted_count
         })
         
@@ -1568,6 +1773,9 @@ def generate_conf_rank_page():
     
     # Get valid venue ranks from config
     venue_ranks = search_conf.get('venue_rank_list', ['A*', 'A', 'B', 'C', 'D', 'Q1', 'Q2', 'Q3', 'Q4', 'NA']) if search_conf else ['A*', 'A', 'B', 'C', 'D', 'Q1', 'Q2', 'Q3', 'Q4', 'NA']
+    # Ensure "NA" is always available as an option
+    if 'NA' not in venue_ranks:
+        venue_ranks.append('NA')
     
     # Check if BibTeX step was skipped
     workflow_state = load_workflow_state()
@@ -2807,24 +3015,77 @@ def download_content_pdfs():
         # Create folder if it doesn't exist
         os.makedirs(pdf_folder, exist_ok=True)
         
-        # Download PDFs
-        download_pdfs(articles, pdf_folder)
+        # Download PDFs (skip manual prompt for webapp, return failed downloads)
+        failed_downloads = download_pdfs(articles, pdf_folder, skip_manual_prompt=True)
         
         # Count downloaded and failed PDFs
         downloaded_count = 0
         failed_count = 0
+        failed_details = []
         for article in articles:
             pdf_path = os.path.join(pdf_folder, f"{article.id}.pdf")
-            if os.path.exists(pdf_path):
+            if os.path.exists(pdf_path) and is_valid_pdf(pdf_path):
                 downloaded_count += 1
             else:
                 failed_count += 1
+                # Check if this article was in failed downloads
+                if failed_downloads and any(failed.id == article.id for failed in failed_downloads):
+                    url = article.eprint_url or article.pub_url or 'No URL available'
+                    failed_details.append({
+                        'article_id': article.id,
+                        'title': article.title or 'No title',
+                        'url': url,
+                        'expected_filename': f"{article.id}.pdf"
+                    })
         
-        return jsonify({
+        response_data = {
             'success': True,
             'downloaded_count': downloaded_count,
             'failed_count': failed_count,
             'message': f'PDF download completed. Downloaded {downloaded_count} PDF(s).'
+        }
+        
+        if failed_details:
+            response_data['failed_downloads'] = failed_details
+            response_data['message'] += f' {failed_count} PDF(s) need manual download.'
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/filter_by_content/verify_pdf', methods=['POST'])
+def verify_pdf_download():
+    """Verify if a manually downloaded PDF exists and is valid"""
+    try:
+        data = request.get_json()
+        article_id = data.get('article_id')
+        pdf_folder = data.get('pdf_folder')
+        
+        if not article_id or not pdf_folder:
+            return jsonify({'error': 'Article ID and PDF folder are required'}), 400
+        
+        pdf_path = os.path.join(pdf_folder, f"{article_id}.pdf")
+        
+        if not os.path.exists(pdf_path):
+            return jsonify({
+                'success': True,
+                'exists': False,
+                'valid': False,
+                'message': f'File {article_id}.pdf not found'
+            })
+        
+        # Check if it's a valid PDF
+        valid = is_valid_pdf(pdf_path)
+        
+        return jsonify({
+            'success': True,
+            'exists': True,
+            'valid': valid,
+            'message': f'File {article_id}.pdf exists and is {"valid" if valid else "invalid"}'
         })
         
     except Exception as e:
@@ -3935,6 +4196,702 @@ def download_csv(filename):
             as_attachment=True,
             download_name=filename
         )
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Analysis Tools Routes (for final paper analysis after snowballing)
+# ============================================================================
+
+@app.route('/analysis/generate_config', methods=['GET', 'POST'])
+def generate_analysis_conf_route():
+    """Generate analysis and LLM configuration"""
+    if request.method == 'GET':
+        # Check if analysis_conf.json already exists
+        analysis_conf_exists = os.path.exists(ANALYSIS_CONF_PATH)
+        
+        # Try to load existing config if it exists
+        analysis_conf = None
+        if analysis_conf_exists:
+            try:
+                with open(ANALYSIS_CONF_PATH, 'r') as f:
+                    analysis_conf = json.load(f)
+            except:
+                pass
+        
+        # Check if llm_config.json exists
+        llm_config_exists = os.path.exists(LLM_CONFIG_PATH)
+        
+        # Try to load existing LLM config if it exists
+        llm_config = None
+        if llm_config_exists:
+            try:
+                with open(LLM_CONFIG_PATH, 'r') as f:
+                    llm_config = json.load(f)
+            except:
+                pass
+        
+        # Get default CSV path from search_conf if available
+        search_conf = load_search_conf()
+        default_csv_path = search_conf.get('csv_path', 'results.csv') if search_conf else 'results.csv'
+        
+        return render_template('generate_analysis_conf.html',
+                             analysis_conf_exists=analysis_conf_exists,
+                             analysis_conf=analysis_conf,
+                             llm_config_exists=llm_config_exists,
+                             llm_config=llm_config,
+                             default_csv_path=default_csv_path)
+    
+    # Handle POST request
+    try:
+        # Get form data
+        form_data = request.form.to_dict()
+        
+        # Validate and save Analysis Configuration
+        required_fields = ['articles_folder', 'csv_path', 'seed_file', 'output_path', 'topics_file']
+        for field in required_fields:
+            if not form_data.get(field) or not form_data.get(field).strip():
+                flash(f'{field.replace("_", " ").title()} is required', 'error')
+                return redirect(url_for('generate_analysis_conf_route'))
+        
+        analysis_config = {
+            'articles_folder': form_data.get('articles_folder').strip(),
+            'csv_path': form_data.get('csv_path').strip(),
+            'seed_file': form_data.get('seed_file').strip(),
+            'output_path': form_data.get('output_path').strip(),
+            'topics_file': form_data.get('topics_file').strip()
+        }
+        
+        # Save analysis config to file
+        with open(ANALYSIS_CONF_PATH, 'w') as f:
+            json.dump(analysis_config, f, indent=4)
+        
+        # Build and save LLM Configuration
+        # Validate required LLM fields
+        required_llm_models = ['openai_model', 'gemini_model', 'anthropic_model']
+        for model_field in required_llm_models:
+            if not form_data.get(model_field) or not form_data.get(model_field).strip():
+                flash(f'{model_field.replace("_", " ").title()} is required', 'error')
+                return redirect(url_for('generate_analysis_conf_route'))
+        
+        # Load existing LLM config to preserve pricing values
+        existing_llm_config = None
+        if os.path.exists(LLM_CONFIG_PATH):
+            try:
+                with open(LLM_CONFIG_PATH, 'r') as f:
+                    existing_llm_config = json.load(f)
+            except:
+                pass
+        
+        # Helper function to get pricing or default
+        def get_pricing(provider, existing_config):
+            if existing_config and provider in existing_config:
+                pricing = existing_config[provider].get('pricing_per_1k_tokens')
+                if pricing:
+                    return pricing
+            # Default pricing values
+            defaults = {
+                'openai': {'input': 0.0015, 'output': 0.002},
+                'gemini': {'input': 0.0005, 'output': 0.0015},
+                'anthropic': {'input': 0.003, 'output': 0.015}
+            }
+            return defaults.get(provider, {'input': 0.0, 'output': 0.0})
+        
+        llm_config = {
+            'openai': {
+                'api_key': form_data.get('openai_api_key', '').strip(),
+                'api_key_env': form_data.get('openai_api_key_env', 'OPENAI_API_KEY').strip(),
+                'model': form_data.get('openai_model').strip(),
+                'temperature': float(form_data.get('openai_temperature', 1.0)),
+                'max_output_tokens': int(form_data.get('openai_max_output_tokens', 5000)),
+                'context_length': int(form_data.get('openai_context_length', 20000)),
+                'pricing_per_1k_tokens': get_pricing('openai', existing_llm_config)
+            },
+            'gemini': {
+                'api_key': form_data.get('gemini_api_key', '').strip(),
+                'api_key_env': form_data.get('gemini_api_key_env', 'GEMINI_API_KEY').strip(),
+                'model': form_data.get('gemini_model').strip(),
+                'temperature': float(form_data.get('gemini_temperature', 0.7)),
+                'max_output_tokens': int(form_data.get('gemini_max_output_tokens', 5000)),
+                'context_length': int(form_data.get('gemini_context_length', 16385)),
+                'pricing_per_1k_tokens': get_pricing('gemini', existing_llm_config)
+            },
+            'anthropic': {
+                'api_key': form_data.get('anthropic_api_key', '').strip(),
+                'api_key_env': form_data.get('anthropic_api_key_env', 'ANTHROPIC_API_KEY').strip(),
+                'model': form_data.get('anthropic_model').strip(),
+                'temperature': float(form_data.get('anthropic_temperature', 0.7)),
+                'max_output_tokens': int(form_data.get('anthropic_max_output_tokens', 5000)),
+                'context_length': int(form_data.get('anthropic_context_length', 16385)),
+                'pricing_per_1k_tokens': get_pricing('anthropic', existing_llm_config)
+            }
+        }
+        
+        # Ensure the directory exists before saving
+        llm_config_dir = os.path.dirname(LLM_CONFIG_PATH)
+        if llm_config_dir and not os.path.exists(llm_config_dir):
+            os.makedirs(llm_config_dir, exist_ok=True)
+        
+        # Save LLM config to file
+        with open(LLM_CONFIG_PATH, 'w') as f:
+            json.dump(llm_config, f, indent=4)
+        
+        flash('All configurations saved successfully!', 'success')
+        return redirect(url_for('generate_analysis_conf_route'))
+        
+    except ValueError as e:
+        flash(f'Validation error: {str(e)}', 'error')
+        return redirect(url_for('generate_analysis_conf_route'))
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        flash(f'Error saving configuration: {str(e)}', 'error')
+        return redirect(url_for('generate_analysis_conf_route'))
+
+
+@app.route('/analysis/download_pdfs', methods=['GET'])
+def download_pdfs_analysis_page():
+    """Page for downloading PDFs from CSV for analysis"""
+    # Check if analysis_conf exists and get CSV path from there first
+    analysis_conf_exists = os.path.exists(ANALYSIS_CONF_PATH)
+    analysis_conf = None
+    csv_path = 'results.csv'
+    
+    if analysis_conf_exists:
+        try:
+            with open(ANALYSIS_CONF_PATH, 'r') as f:
+                analysis_conf = json.load(f)
+                csv_path = analysis_conf.get('csv_path', 'results.csv')
+        except:
+            pass
+    
+    # Fall back to search_conf if analysis_conf doesn't have csv_path
+    if not csv_path or csv_path == 'results.csv':
+        search_conf = load_search_conf()
+        csv_path = search_conf.get('csv_path', 'results.csv') if search_conf else 'results.csv'
+    
+    return render_template('download_pdfs_analysis.html',
+                         csv_path=csv_path,
+                         analysis_conf=analysis_conf)
+
+
+@app.route('/api/analysis/download_pdfs', methods=['POST'])
+def download_pdfs_analysis_api():
+    """API endpoint to download PDFs from CSV"""
+    try:
+        data = request.get_json()
+        csv_path = data.get('csv_path', '').strip()
+        articles_folder = data.get('articles_folder', 'articles').strip()
+        
+        if not csv_path:
+            return jsonify({'error': 'CSV path is required'}), 400
+        
+        if not os.path.exists(csv_path):
+            return jsonify({'error': f'CSV file not found: {csv_path}'}), 400
+        
+        # Import download functions
+        from utils.article_processing.download_pdfs import download_pdf, is_valid_pdf
+        import csv
+        import pathlib
+        import time
+        
+        # Create output folder
+        pathlib.Path(articles_folder).mkdir(parents=True, exist_ok=True)
+        
+        failed_downloads = []
+        success_count = 0
+        total_count = 0
+        
+        # Read CSV and process each row
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            
+            for row in reader:
+                total_count += 1
+                title = row.get('title', '').strip()
+                url = row.get('url', '').strip()
+                
+                if not title or not url:
+                    continue
+                
+                # Generate filename from title (same logic as in scripts)
+                article_id = title.replace(" ", "_").replace(":", "_").replace("/", "_").replace("\\", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace(".", "_")
+                filename = f"{article_id}.pdf"
+                output_file = os.path.join(articles_folder, filename)
+                
+                # Skip if already exists
+                if os.path.exists(output_file):
+                    success_count += 1
+                    continue
+                
+                # Try to download
+                if download_pdf(url, output_file):
+                    # Validate PDF
+                    if is_valid_pdf(output_file):
+                        success_count += 1
+                        time.sleep(1)  # Rate limiting
+                    else:
+                        # Invalid PDF, remove it
+                        if os.path.exists(output_file):
+                            os.remove(output_file)
+                        failed_downloads.append({
+                            'title': title,
+                            'url': url,
+                            'filename': filename
+                        })
+                else:
+                    failed_downloads.append({
+                        'title': title,
+                        'url': url,
+                        'filename': filename
+                    })
+        
+        return jsonify({
+            'success': True,
+            'success_count': success_count,
+            'total_count': total_count,
+            'failed_downloads': failed_downloads
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/analysis/task_assistant', methods=['GET'])
+def task_assistant_page():
+    """Page for task assistant (Q&A system for PDFs)"""
+    # Check if analysis_conf exists
+    analysis_conf_exists = os.path.exists(ANALYSIS_CONF_PATH)
+    analysis_conf = None
+    csv_path = 'results.csv'
+    
+    if analysis_conf_exists:
+        try:
+            with open(ANALYSIS_CONF_PATH, 'r') as f:
+                analysis_conf = json.load(f)
+                csv_path = analysis_conf.get('csv_path', 'results.csv')
+        except:
+            pass
+    
+    # Fall back to search_conf if needed
+    if not csv_path or csv_path == 'results.csv':
+        search_conf = load_search_conf()
+        csv_path = search_conf.get('csv_path', 'results.csv') if search_conf else 'results.csv'
+    
+    return render_template('task_assistant.html',
+                         analysis_conf=analysis_conf,
+                         csv_path=csv_path)
+
+
+@app.route('/api/analysis/task_assistant', methods=['POST'])
+def task_assistant_api():
+    """API endpoint to run task assistant on PDFs"""
+    try:
+        data = request.get_json()
+        articles_folder = data.get('articles_folder', '').strip()
+        csv_path = data.get('csv_path', '').strip()
+        question = data.get('question', '').strip()
+        provider = data.get('provider', 'openai').strip()
+        output_path = data.get('output_path', 'output/task_assistant_results.csv').strip()
+        
+        if not articles_folder:
+            return jsonify({'error': 'Articles folder is required'}), 400
+        if not csv_path:
+            return jsonify({'error': 'CSV path is required'}), 400
+        if not question:
+            return jsonify({'error': 'Question is required'}), 400
+        if not os.path.exists(articles_folder):
+            return jsonify({'error': f'Articles folder not found: {articles_folder}'}), 400
+        if not os.path.exists(csv_path):
+            return jsonify({'error': f'CSV file not found: {csv_path}'}), 400
+        
+        # Import required modules
+        from utils.article_llm_analysis.task_assistant import PDFQASystem
+        from utils.article_processing.shared_utils import load_config, create_llm, get_use_chat_model
+        from pathlib import Path
+        import csv
+        
+        # Load LLM config
+        if not os.path.exists(LLM_CONFIG_PATH):
+            return jsonify({'error': f'LLM config file not found: {LLM_CONFIG_PATH}'}), 400
+        
+        config = load_config(LLM_CONFIG_PATH)
+        if provider not in config:
+            return jsonify({'error': f'Provider {provider} not found in LLM config'}), 400
+        
+        provider_config = config[provider]
+        
+        # Create LLM
+        llm = create_llm(provider, provider_config)
+        use_chat_model = get_use_chat_model(provider)
+        max_output_tokens = provider_config.get("max_output_tokens", 5000)
+        context_length = provider_config.get("context_length", 16385)
+        
+        # Initialize QA system
+        qa_system = PDFQASystem(
+            llm,
+            use_chat_model,
+            context_length,
+            max_output_tokens,
+            provider,
+            provider_config["model"],
+            provider_config,
+        )
+        
+        # Load CSV to create title mapping (sanitized title -> original title)
+        title_map = {}
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                title = row.get('title', '').strip()
+                if title:
+                    # Sanitize title same way as in download_pdfs
+                    sanitized = title.replace(" ", "_").replace(":", "_").replace("/", "_").replace("\\", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace(".", "_")
+                    title_map[sanitized] = title
+        
+        # Get all PDF files
+        pdf_folder = Path(articles_folder)
+        pdf_files = list(pdf_folder.glob("*.pdf"))
+        
+        if not pdf_files:
+            return jsonify({'error': f'No PDF files found in {articles_folder}'}), 400
+        
+        # Process each PDF
+        results = []
+        for pdf_file in pdf_files:
+            pdf_name = pdf_file.stem  # filename without .pdf extension
+            
+            # Get original title from map, or use filename if not found
+            article_title = title_map.get(pdf_name, pdf_name.replace('_', ' '))
+            
+            # Ask question about this PDF
+            response = qa_system.ask_single_prompt(str(pdf_file), question)
+            
+            results.append({
+                'article_id': f"{pdf_name}.pdf",
+                'article_title': article_title,
+                'answer': response.get('answer', 'Error processing PDF')
+            })
+        
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Save results to CSV
+        with open(output_path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['article_id', 'article_title', 'answer'])
+            writer.writeheader()
+            writer.writerows(results)
+        
+        return jsonify({
+            'success': True,
+            'output_path': output_path,
+            'processed_count': len(results)
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/analysis/topic_modeling', methods=['GET'])
+def topic_modeling_page():
+    """Page for topic modeling"""
+    # Check if analysis_conf exists
+    analysis_conf_exists = os.path.exists(ANALYSIS_CONF_PATH)
+    analysis_conf = None
+    if analysis_conf_exists:
+        try:
+            with open(ANALYSIS_CONF_PATH, 'r') as f:
+                analysis_conf = json.load(f)
+        except:
+            pass
+    
+    return render_template('topic_modeling.html',
+                         analysis_conf=analysis_conf)
+
+
+@app.route('/api/analysis/topic_modeling', methods=['POST'])
+def topic_modeling_api():
+    """API endpoint to execute topic modeling steps"""
+    try:
+        data = request.get_json()
+        step = data.get('step', '').strip()
+        articles_folder = data.get('articles_folder', '').strip()
+        output_dir = data.get('output_dir', '').strip()
+        provider = data.get('provider', 'openai').strip()
+        seed_file = data.get('seed_file', '').strip()
+        
+        if not step:
+            return jsonify({'error': 'Step is required'}), 400
+        if step not in ['level1', 'level2', 'assign', 'refine', 'correct']:
+            return jsonify({'error': f'Invalid step: {step}'}), 400
+        if not articles_folder:
+            return jsonify({'error': 'Articles folder is required'}), 400
+        if not output_dir:
+            return jsonify({'error': 'Output directory is required'}), 400
+        if not os.path.exists(articles_folder):
+            return jsonify({'error': f'Articles folder not found: {articles_folder}'}), 400
+        
+        # Import required modules
+        from utils.article_llm_analysis.topic_modeling import (
+            TopicModelingSystem,
+            TopicModelingLevel1,
+            TopicModelingLevel2,
+            TopicModelingAssign,
+            TopicModelingRefine,
+            TopicModelingCorrect,
+            TOPICGPT_AVAILABLE
+        )
+        from utils.article_processing.shared_utils import load_config, create_llm, get_use_chat_model
+        
+        if not TOPICGPT_AVAILABLE:
+            return jsonify({'error': 'TopicGPT is required but not installed. Install with: pip install topicgpt_python'}), 400
+        
+        # Load LLM config
+        if not os.path.exists(LLM_CONFIG_PATH):
+            return jsonify({'error': f'LLM config file not found: {LLM_CONFIG_PATH}'}), 400
+        
+        config = load_config(LLM_CONFIG_PATH)
+        if provider not in config:
+            return jsonify({'error': f'Provider {provider} not found in LLM config'}), 400
+        
+        provider_config = config[provider]
+        
+        # Create LLM
+        llm = create_llm(provider, provider_config)
+        use_chat_model = get_use_chat_model(provider)
+        max_output_tokens = provider_config.get("max_output_tokens", 5000)
+        context_length = provider_config.get("context_length", 16385)
+        temperature = provider_config.get("temperature", 0.7)
+        
+        # Select step class
+        step_classes = {
+            'level1': TopicModelingLevel1,
+            'level2': TopicModelingLevel2,
+            'assign': TopicModelingAssign,
+            'refine': TopicModelingRefine,
+            'correct': TopicModelingCorrect
+        }
+        
+        step_class = step_classes[step]
+        topic_modeling_step = step_class(
+            llm,
+            use_chat_model,
+            context_length,
+            max_output_tokens,
+            provider,
+            provider_config["model"],
+            temperature,
+        )
+        
+        topic_modeling_system = TopicModelingSystem(topic_modeling_step)
+        
+        # Prepare kwargs based on step
+        kwargs = {
+            'max_workers': 4
+        }
+        
+        if step == 'level1':
+            # Get seed_file from step-specific params or fall back to general seed_file
+            step_seed_file = data.get('seed_file', seed_file)
+            if not step_seed_file:
+                return jsonify({'error': 'Seed file is required for level1 step'}), 400
+            if not os.path.exists(step_seed_file):
+                return jsonify({'error': f'Seed file not found: {step_seed_file}'}), 400
+            kwargs['seed_file'] = step_seed_file
+            
+            # Get prompt_file from step-specific params
+            step_prompt_file = data.get('prompt_file', '')
+            if step_prompt_file:
+                if not os.path.exists(step_prompt_file):
+                    return jsonify({'error': f'Prompt file not found: {step_prompt_file}'}), 400
+                kwargs['prompt_file'] = step_prompt_file
+            else:
+                # Prompt file is optional - will look in output_dir if not provided
+                prompt_file_path = os.path.join(output_dir, 'prompt_lvl1.txt')
+                if os.path.exists(prompt_file_path):
+                    kwargs['prompt_file'] = prompt_file_path
+        elif step == 'level2':
+            # Get seed_file from step-specific params or fall back to general seed_file
+            step_seed_file = data.get('seed_file', seed_file)
+            if not step_seed_file:
+                return jsonify({'error': 'Seed file is required for level2 step'}), 400
+            if not os.path.exists(step_seed_file):
+                return jsonify({'error': f'Seed file not found: {step_seed_file}'}), 400
+            kwargs['seed_file'] = step_seed_file
+            
+            level1_topics_file = os.path.join(output_dir, 'topics_lvl1.md')
+            if not os.path.exists(level1_topics_file):
+                return jsonify({'error': f'Level 1 topics file not found: {level1_topics_file}. Run step 1 first.'}), 400
+            kwargs['level1_topics_file'] = level1_topics_file
+            
+            # Get prompt_file from step-specific params
+            step_prompt_file = data.get('prompt_file', '')
+            if step_prompt_file:
+                if not os.path.exists(step_prompt_file):
+                    return jsonify({'error': f'Prompt file not found: {step_prompt_file}'}), 400
+                kwargs['prompt_file'] = step_prompt_file
+            else:
+                prompt_file_path = os.path.join(output_dir, 'prompt_lvl2.txt')
+                if os.path.exists(prompt_file_path):
+                    kwargs['prompt_file'] = prompt_file_path
+        elif step == 'assign':
+            # Get topic_file from step-specific params (optional)
+            step_topic_file = data.get('topic_file', '')
+            if step_topic_file:
+                if not os.path.exists(step_topic_file):
+                    return jsonify({'error': f'Topic file not found: {step_topic_file}'}), 400
+                kwargs['topic_file'] = step_topic_file
+            
+            # Get prompt_file from step-specific params
+            step_prompt_file = data.get('prompt_file', '')
+            if step_prompt_file:
+                if not os.path.exists(step_prompt_file):
+                    return jsonify({'error': f'Prompt file not found: {step_prompt_file}'}), 400
+                kwargs['prompt_file'] = step_prompt_file
+            else:
+                prompt_file_path = os.path.join(output_dir, 'prompt_assign.txt')
+                if os.path.exists(prompt_file_path):
+                    kwargs['prompt_file'] = prompt_file_path
+        elif step == 'refine':
+            # Get topic_file from step-specific params
+            step_topic_file = data.get('topic_file', '')
+            if not step_topic_file:
+                return jsonify({'error': 'Topic file is required for refine step'}), 400
+            if not os.path.exists(step_topic_file):
+                return jsonify({'error': f'Topic file not found: {step_topic_file}'}), 400
+            kwargs['topic_file'] = step_topic_file
+            
+            # Get prompt_file from step-specific params
+            step_prompt_file = data.get('prompt_file', '')
+            if step_prompt_file:
+                if not os.path.exists(step_prompt_file):
+                    return jsonify({'error': f'Prompt file not found: {step_prompt_file}'}), 400
+                kwargs['prompt_file'] = step_prompt_file
+            else:
+                prompt_file_path = os.path.join(output_dir, 'prompt_refine.txt')
+                if os.path.exists(prompt_file_path):
+                    kwargs['prompt_file'] = prompt_file_path
+        elif step == 'correct':
+            # Get topic_file from step-specific params (optional)
+            step_topic_file = data.get('topic_file', '')
+            if step_topic_file:
+                if not os.path.exists(step_topic_file):
+                    return jsonify({'error': f'Topic file not found: {step_topic_file}'}), 400
+                kwargs['topic_file'] = step_topic_file
+            
+            # Get assignments_file from step-specific params
+            # The correct step looks for assignments_new.jsonl in output_dir
+            # If user provides a different path, we need to copy it or use it
+            step_assignments_file = data.get('assignments_file', '')
+            if step_assignments_file:
+                if not os.path.exists(step_assignments_file):
+                    return jsonify({'error': f'Assignments file not found: {step_assignments_file}'}), 400
+                # Copy to expected location if different
+                expected_assignments_file = os.path.join(output_dir, 'assignments_new.jsonl')
+                if step_assignments_file != expected_assignments_file:
+                    import shutil
+                    shutil.copy2(step_assignments_file, expected_assignments_file)
+            else:
+                # Check if default location exists
+                expected_assignments_file = os.path.join(output_dir, 'assignments_new.jsonl')
+                if not os.path.exists(expected_assignments_file):
+                    return jsonify({'error': f'Assignments file not found: {expected_assignments_file}. Run step 3 (Assign) first.'}), 400
+            
+            # Get prompt_file from step-specific params
+            step_prompt_file = data.get('prompt_file', '')
+            if step_prompt_file:
+                if not os.path.exists(step_prompt_file):
+                    return jsonify({'error': f'Prompt file not found: {step_prompt_file}'}), 400
+                kwargs['prompt_file'] = step_prompt_file
+            else:
+                prompt_file_path = os.path.join(output_dir, 'prompt_correct.txt')
+                if os.path.exists(prompt_file_path):
+                    kwargs['prompt_file'] = prompt_file_path
+        
+        # Execute step
+        result = topic_modeling_system.execute_step(
+            articles_folder,
+            output_dir,
+            **kwargs
+        )
+        
+        if result.get("success", False):
+            message = f"Step '{step}' completed successfully!"
+            if step == 'level1' and 'topics' in result:
+                message += f" Generated {len(result['topics'])} topics."
+            elif step == 'level2' and 'topics' in result:
+                message += f" Generated {len(result['topics'])} topics."
+            elif step == 'assign' and 'assignments' in result:
+                message += f" Assigned topics to {len(result['assignments'])} documents."
+            elif step == 'refine':
+                message += " Topics refined successfully."
+            elif step == 'correct' and 'assignments' in result:
+                message += f" Corrected assignments for {len(result['assignments'])} documents."
+            return jsonify({'success': True, 'message': message})
+        else:
+            error_msg = result.get('error', 'Unknown error')
+            return jsonify({'error': error_msg}), 500
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/file/read', methods=['POST'])
+def read_file_api():
+    """API endpoint to read file contents"""
+    try:
+        data = request.get_json()
+        file_path = data.get('file_path', '').strip()
+        
+        if not file_path:
+            return jsonify({'error': 'File path is required'}), 400
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': f'File not found: {file_path}'}), 404
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return jsonify({'success': True, 'content': content})
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/file/write', methods=['POST'])
+def write_file_api():
+    """API endpoint to write file contents"""
+    try:
+        data = request.get_json()
+        file_path = data.get('file_path', '').strip()
+        content = data.get('content', '')
+        
+        if not file_path:
+            return jsonify({'error': 'File path is required'}), 400
+        
+        # Ensure the directory exists
+        file_dir = os.path.dirname(file_path)
+        if file_dir and not os.path.exists(file_dir):
+            os.makedirs(file_dir, exist_ok=True)
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        return jsonify({'success': True, 'message': f'File saved to {file_path}'})
         
     except Exception as e:
         import traceback

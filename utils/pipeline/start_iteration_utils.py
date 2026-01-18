@@ -2,7 +2,7 @@ from tqdm import tqdm
 import sys
 
 from ..db_management import DBManager
-from ..article_search.article_search_method import ArticleSearch
+from ..article_search.article_search_method import ArticleSearch, SemanticScholarSearchMethod, GoogleScholarSearchMethod, DBLPSearchMethod
 
 
 def get_articles(iteration: int, initial_pubs, db_manager: DBManager, article_search: ArticleSearch, verbose: bool = False):
@@ -30,3 +30,37 @@ def get_articles(iteration: int, initial_pubs, db_manager: DBManager, article_se
         db_manager.insert_seen_titles_data([(article.title, article.id) for article in filtered_articles])
     
     sys.stdout.flush()
+
+def repair_references(iteration: int, db_manager: DBManager, verbose: bool = False):
+    """ Repair broken references for the given iteration """
+    articles = db_manager.get_iteration_data(iteration=iteration, id__empty=True)
+    semantic_scholar_search = SemanticScholarSearchMethod()
+    google_scholar_search = GoogleScholarSearchMethod()
+    dblp_search = DBLPSearchMethod()
+    search_methods = [semantic_scholar_search, google_scholar_search, dblp_search]
+    for article in articles:
+        confirmation = input(f"Is this an article {article.title}? (y/n):")
+        if confirmation == "y":
+            title = input(f"Enter the title of the article (leave empty to use the current title):")
+            title = title.strip() if title.strip() != "" else article.title
+            article.title = title  # Update title if changed
+            for search_method in search_methods:
+                found_articles = search_method.search(title)
+                if len(found_articles) > 0:
+                    article.id = found_articles[0].id
+                    break
+            if article.id is None or article.id == "":
+                print(f"No article found for {title}")
+                continue
+            db_manager.insert_iteration_data([article])
+            # Update seen_titles table to link title to new ID
+            db_manager.insert_seen_titles_data([(article.title.lower(), article.id)])
+            
+            # Delete the old entry (with empty ID)
+            db_manager.cursor.execute(
+                "DELETE FROM iterations WHERE id = ? AND iteration = ? AND title = ?",
+                ('', iteration, article.title)
+            )
+            db_manager.conn.commit()
+
+    db_manager.clear_unidentified_articles(iteration)
