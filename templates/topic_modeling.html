@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Topic Modeling - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .step-card {
+            margin-bottom: 2rem;
+            transition: transform 0.2s;
+        }
+        .step-card:hover {
+            transform: translateY(-5px);
+        }
+        .step-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #28a745;
+        }
+        .progress-container {
+            display: none;
+            margin-top: 1rem;
+        }
+        .results-container {
+            display: none;
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4 mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-12">
+                <div class="card shadow">
+                    <div class="card-header bg-success text-white">
+                        <h2 class="mb-0">
+                            <i class="fas fa-project-diagram"></i> Topic Modeling
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                            {% if messages %}
+                                {% for category, message in messages %}
+                                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                                        {{ message }}
+                                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
+                        {% endwith %}
+
+                        <p class="lead mb-4">Topic modeling is performed in 5 sequential steps. Click on each step to execute it.</p>
+
+                        <!-- Common Configuration -->
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-cog"></i> Configuration</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="articles_folder" class="form-label">Articles Folder</label>
+                                        <input type="text" class="form-control" id="articles_folder" 
+                                               value="{{ analysis_conf.get('articles_folder', 'articles') if analysis_conf else 'articles' }}">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="output_dir" class="form-label">Output Directory</label>
+                                        <input type="text" class="form-control" id="output_dir" 
+                                               value="{{ analysis_conf.get('output_path', 'output') if analysis_conf else 'output' }}">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="provider" class="form-label">LLM Provider</label>
+                                        <select class="form-select" id="provider">
+                                            <option value="openai" selected>OpenAI</option>
+                                            <option value="gemini">Gemini</option>
+                                            <option value="anthropic">Anthropic</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="seed_file" class="form-label">Seed File</label>
+                                        <input type="text" class="form-control" id="seed_file" 
+                                               value="{{ analysis_conf.get('output_path', 'output') if analysis_conf else 'output' }}/{{ analysis_conf.get('seed_file', 'seed.md') if analysis_conf else 'seed.md' }}">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 1: Level 1 -->
+                        <div class="card step-card shadow-sm">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-3">
+                                    <span class="step-number me-3">1</span>
+                                    <div class="flex-grow-1">
+                                        <h4 class="mb-1">Level 1 - Generate High-Level Topics</h4>
+                                        <p class="text-muted mb-0">Generate high-level topics from PDF documents</p>
+                                    </div>
+                                    <button class="btn btn-success btn-lg" id="step1Btn" onclick="executeStep(1)">
+                                        <i class="fas fa-play"></i> Run Step 1
+                                    </button>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step1_seed_file" class="form-label">
+                                            <i class="fas fa-seedling"></i> Seed File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step1_seed_file" 
+                                                   value="{{ analysis_conf.get('output_path', 'output') if analysis_conf else 'output' }}/{{ analysis_conf.get('seed_file', 'seed.md') if analysis_conf else 'seed.md' }}">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step1_seed_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step1_seed_file', 'Seed File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step1_seed_file_input" accept=".md,.txt" style="display: none;" onchange="handleFileSelect(event, 'step1_seed_file')">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step1_prompt_file" class="form-label">
+                                            <i class="fas fa-file-alt"></i> Prompt File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step1_prompt_file" 
+                                                   placeholder="Leave empty to use prompt_lvl1.txt from output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step1_prompt_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step1_prompt_file', 'Prompt File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step1_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step1_prompt_file')">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Level 2 -->
+                        <div class="card step-card shadow-sm">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-3">
+                                    <span class="step-number me-3">2</span>
+                                    <div class="flex-grow-1">
+                                        <h4 class="mb-1">Level 2 - Generate Low-Level Topics</h4>
+                                        <p class="text-muted mb-0">Generate detailed sub-topics based on level 1 topics</p>
+                                    </div>
+                                    <button class="btn btn-success btn-lg" id="step2Btn" onclick="executeStep(2)">
+                                        <i class="fas fa-play"></i> Run Step 2
+                                    </button>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step2_seed_file" class="form-label">
+                                            <i class="fas fa-seedling"></i> Seed File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step2_seed_file" 
+                                                   value="{{ analysis_conf.get('output_path', 'output') if analysis_conf else 'output' }}/{{ analysis_conf.get('seed_file', 'seed.md') if analysis_conf else 'seed.md' }}">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step2_seed_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step2_seed_file', 'Seed File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step2_seed_file_input" accept=".md,.txt" style="display: none;" onchange="handleFileSelect(event, 'step2_seed_file')">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step2_prompt_file" class="form-label">
+                                            <i class="fas fa-file-alt"></i> Prompt File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step2_prompt_file" 
+                                                   placeholder="Leave empty to use prompt_lvl2.txt from output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step2_prompt_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step2_prompt_file', 'Prompt File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step2_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step2_prompt_file')">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="alert alert-info mb-0">
+                                    <small><strong>Note:</strong> Level 1 topics file (topics_lvl1.md) is auto-detected from output directory</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Assign -->
+                        <div class="card step-card shadow-sm">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-3">
+                                    <span class="step-number me-3">3</span>
+                                    <div class="flex-grow-1">
+                                        <h4 class="mb-1">Assign - Assign Topics to Documents</h4>
+                                        <p class="text-muted mb-0">Assign topics to each document based on content</p>
+                                    </div>
+                                    <button class="btn btn-success btn-lg" id="step3Btn" onclick="executeStep(3)">
+                                        <i class="fas fa-play"></i> Run Step 3
+                                    </button>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step3_topic_file" class="form-label">
+                                            <i class="fas fa-list"></i> Topics File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step3_topic_file" 
+                                                   placeholder="Auto-detects from topics_lvl1.md, topics_lvl2.md, or topics_refined.md">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step3_topic_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step3_topic_file', 'Topics File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step3_topic_file_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step3_topic_file')">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step3_prompt_file" class="form-label">
+                                            <i class="fas fa-file-alt"></i> Prompt File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step3_prompt_file" 
+                                                   placeholder="Leave empty to use prompt_assign.txt from output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step3_prompt_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step3_prompt_file', 'Prompt File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step3_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step3_prompt_file')">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 4: Refine -->
+                        <div class="card step-card shadow-sm">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-3">
+                                    <span class="step-number me-3">4</span>
+                                    <div class="flex-grow-1">
+                                        <h4 class="mb-1">Refine - Refine Topics</h4>
+                                        <p class="text-muted mb-0">Merge and refine topics to improve quality</p>
+                                    </div>
+                                    <button class="btn btn-success btn-lg" id="step4Btn" onclick="executeStep(4)">
+                                        <i class="fas fa-play"></i> Run Step 4
+                                    </button>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step4_topic_file" class="form-label">
+                                            <i class="fas fa-list"></i> Topics File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step4_topic_file" 
+                                                   placeholder="Path to topics file (e.g., topics_lvl1.md)">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step4_topic_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step4_topic_file', 'Topics File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step4_topic_file_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step4_topic_file')">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step4_prompt_file" class="form-label">
+                                            <i class="fas fa-file-alt"></i> Prompt File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step4_prompt_file" 
+                                                   placeholder="Leave empty to use prompt_refine.txt from output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step4_prompt_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step4_prompt_file', 'Prompt File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step4_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step4_prompt_file')">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 5: Correct -->
+                        <div class="card step-card shadow-sm">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-3">
+                                    <span class="step-number me-3">5</span>
+                                    <div class="flex-grow-1">
+                                        <h4 class="mb-1">Correct - Correct Topic Assignments</h4>
+                                        <p class="text-muted mb-0">Correct and improve topic assignments for documents</p>
+                                    </div>
+                                    <button class="btn btn-success btn-lg" id="step5Btn" onclick="executeStep(5)">
+                                        <i class="fas fa-play"></i> Run Step 5
+                                    </button>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-4">
+                                        <label for="step5_topic_file" class="form-label">
+                                            <i class="fas fa-list"></i> Topics File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step5_topic_file" 
+                                                   placeholder="Auto-detects from topics files">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_topic_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step5_topic_file', 'Topics File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step5_topic_file_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step5_topic_file')">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="step5_assignments_file" class="form-label">
+                                            <i class="fas fa-file-code"></i> Assignments File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step5_assignments_file" 
+                                                   placeholder="assignments_new.jsonl">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_assignments_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step5_assignments_file', 'Assignments File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step5_assignments_file_input" accept=".jsonl" style="display: none;" onchange="handleFileSelect(event, 'step5_assignments_file')">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="step5_prompt_file" class="form-label">
+                                            <i class="fas fa-file-alt"></i> Prompt File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step5_prompt_file" 
+                                                   placeholder="Leave empty to use prompt_correct.txt">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_prompt_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step5_prompt_file', 'Prompt File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step5_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step5_prompt_file')">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Progress Bar -->
+                        <div class="progress-container" id="progressContainer">
+                            <div class="progress mt-3" style="height: 30px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" 
+                                     id="progressBar" 
+                                     style="width: 0%">
+                                    0%
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <span id="progressText">Starting processing...</span>
+                            </div>
+                        </div>
+
+                        <!-- Results -->
+                        <div class="results-container" id="resultsContainer">
+                            <div class="alert alert-success" role="alert">
+                                <h5><i class="fas fa-check-circle"></i> Step Complete!</h5>
+                                <p class="mb-0" id="resultsText"></p>
+                            </div>
+                        </div>
+
+                        <!-- Back Button -->
+                        <div class="mt-4">
+                            <a href="{{ url_for('index') }}" class="btn btn-secondary btn-lg">
+                                <i class="fas fa-arrow-left"></i> Back to Main Page
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit File Modal -->
+    <div class="modal fade" id="editFileModal" tabindex="-1" aria-labelledby="editFileModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editFileModalLabel">Edit File</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_file_path" class="form-label">File Path</label>
+                        <input type="text" class="form-control" id="edit_file_path">
+                        <div class="form-text">Specify the file path. The file will be created if it doesn't exist, or overwritten if it does.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_file_content" class="form-label">File Content</label>
+                        <textarea class="form-control font-monospace" id="edit_file_content" rows="15" style="font-size: 0.9rem;"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="loadFileContent()">
+                        <i class="fas fa-download"></i> Load Existing
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="saveFileContent()">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentEditInputId = null;
+        const editFileModal = new bootstrap.Modal(document.getElementById('editFileModal'));
+        
+        function handleFileSelect(event, targetInputId) {
+            const file = event.target.files[0];
+            if (file) {
+                // For file input, we'll use the filename for now
+                // The user can provide the full path manually or we can handle file uploads
+                document.getElementById(targetInputId).value = file.name;
+            }
+        }
+        
+        function executeStep(stepNumber) {
+            const articlesFolder = document.getElementById('articles_folder').value;
+            const outputDir = document.getElementById('output_dir').value;
+            const provider = document.getElementById('provider').value;
+            const seedFile = document.getElementById('seed_file').value;
+            
+            // Get step-specific parameters
+            let stepParams = {};
+            if (stepNumber === 1) {
+                stepParams.seed_file = document.getElementById('step1_seed_file').value;
+                const promptFile = document.getElementById('step1_prompt_file').value;
+                if (promptFile) {
+                    stepParams.prompt_file = promptFile;
+                }
+            } else if (stepNumber === 2) {
+                stepParams.seed_file = document.getElementById('step2_seed_file').value;
+                const promptFile = document.getElementById('step2_prompt_file').value;
+                if (promptFile) {
+                    stepParams.prompt_file = promptFile;
+                }
+            } else if (stepNumber === 3) {
+                const topicFile = document.getElementById('step3_topic_file').value;
+                if (topicFile) {
+                    stepParams.topic_file = topicFile;
+                }
+                const promptFile = document.getElementById('step3_prompt_file').value;
+                if (promptFile) {
+                    stepParams.prompt_file = promptFile;
+                }
+            } else if (stepNumber === 4) {
+                stepParams.topic_file = document.getElementById('step4_topic_file').value;
+                const promptFile = document.getElementById('step4_prompt_file').value;
+                if (promptFile) {
+                    stepParams.prompt_file = promptFile;
+                }
+            } else if (stepNumber === 5) {
+                const topicFile = document.getElementById('step5_topic_file').value;
+                if (topicFile) {
+                    stepParams.topic_file = topicFile;
+                }
+                const assignmentsFile = document.getElementById('step5_assignments_file').value;
+                if (assignmentsFile) {
+                    stepParams.assignments_file = assignmentsFile;
+                }
+                const promptFile = document.getElementById('step5_prompt_file').value;
+                if (promptFile) {
+                    stepParams.prompt_file = promptFile;
+                }
+            }
+            
+            // Disable all buttons
+            for (let i = 1; i <= 5; i++) {
+                document.getElementById(`step${i}Btn`).disabled = true;
+            }
+            
+            // Show progress
+            document.getElementById('progressContainer').style.display = 'block';
+            document.getElementById('resultsContainer').style.display = 'none';
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressBar').textContent = '0%';
+            document.getElementById('progressText').textContent = `Executing Step ${stepNumber}...`;
+            
+            const stepNames = {
+                1: 'level1',
+                2: 'level2',
+                3: 'assign',
+                4: 'refine',
+                5: 'correct'
+            };
+            
+            fetch('{{ url_for("topic_modeling_api") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    step: stepNames[stepNumber],
+                    articles_folder: articlesFolder,
+                    output_dir: outputDir,
+                    provider: provider,
+                    seed_file: seedFile,
+                    ...stepParams
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Hide progress
+                document.getElementById('progressContainer').style.display = 'none';
+                
+                // Enable all buttons
+                for (let i = 1; i <= 5; i++) {
+                    document.getElementById(`step${i}Btn`).disabled = false;
+                }
+                
+                if (data.error) {
+                    document.getElementById('resultsText').textContent = `Error: ${data.error}`;
+                    document.getElementById('resultsContainer').className = 'results-container alert alert-danger';
+                } else {
+                    const message = data.message || `Step ${stepNumber} completed successfully!`;
+                    document.getElementById('resultsText').textContent = message;
+                    document.getElementById('resultsContainer').className = 'results-container alert alert-success';
+                }
+                document.getElementById('resultsContainer').style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('progressContainer').style.display = 'none';
+                document.getElementById('resultsText').textContent = `Error: ${error.message}`;
+                document.getElementById('resultsContainer').className = 'results-container alert alert-danger';
+                document.getElementById('resultsContainer').style.display = 'block';
+                
+                // Enable all buttons
+                for (let i = 1; i <= 5; i++) {
+                    document.getElementById(`step${i}Btn`).disabled = false;
+                }
+            });
+        }
+        
+        function openEditModal(inputId, fileLabel) {
+            currentEditInputId = inputId;
+            const filePathInput = document.getElementById(inputId);
+            let filePath = filePathInput.value;
+            
+            // If no file path is specified, use a default based on the input type
+            if (!filePath) {
+                const outputDir = document.getElementById('output_dir').value || 'output';
+                if (inputId.includes('seed')) {
+                    filePath = `${outputDir}/seed.md`;
+                } else if (inputId.includes('prompt')) {
+                    filePath = `${outputDir}/prompt_lvl1.txt`;
+                }
+            }
+            
+            document.getElementById('editFileModalLabel').textContent = `Edit ${fileLabel}`;
+            document.getElementById('edit_file_path').value = filePath;
+            document.getElementById('edit_file_content').value = '';
+            document.getElementById('edit_file_content').placeholder = 'Loading...';
+            
+            // Try to load existing file content
+            loadFileContent();
+            
+            editFileModal.show();
+        }
+        
+        function loadFileContent() {
+            const filePath = document.getElementById('edit_file_path').value;
+            
+            if (!filePath) {
+                return;
+            }
+            
+            fetch('{{ url_for("read_file_api") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ file_path: filePath })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    if (data.error.includes('not found') || data.error.includes('does not exist')) {
+                        document.getElementById('edit_file_content').value = '';
+                        document.getElementById('edit_file_content').placeholder = 'File does not exist. Enter content to create a new file.';
+                    } else {
+                        alert('Error loading file: ' + data.error);
+                        document.getElementById('edit_file_content').placeholder = '';
+                    }
+                } else {
+                    document.getElementById('edit_file_content').value = data.content || '';
+                    document.getElementById('edit_file_content').placeholder = '';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading file:', error);
+                // If file doesn't exist, that's okay - user can create it
+                document.getElementById('edit_file_content').value = '';
+                document.getElementById('edit_file_content').placeholder = 'File does not exist. Enter content to create a new file.';
+            });
+        }
+        
+        function saveFileContent() {
+            const filePath = document.getElementById('edit_file_path').value.trim();
+            const content = document.getElementById('edit_file_content').value;
+            
+            if (!filePath) {
+                alert('File path is required');
+                return;
+            }
+            
+            fetch('{{ url_for("write_file_api") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    file_path: filePath,
+                    content: content
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error saving file: ' + data.error);
+                } else {
+                    editFileModal.hide();
+                    alert('File saved successfully!');
+                    // Update the input field with the saved file path
+                    if (currentEditInputId) {
+                        const currentInput = document.getElementById(currentEditInputId);
+                        currentInput.value = filePath;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error saving file:', error);
+                alert('Error saving file: ' + error.message);
+            });
+        }
+    </script>
+</body>
+</html>
+

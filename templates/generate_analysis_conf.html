@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analysis Configuration - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .config-section {
+            margin-bottom: 2rem;
+        }
+        .provider-section {
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            background-color: #f8f9fa;
+        }
+        .provider-header {
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4 mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-12">
+                <div class="card shadow">
+                    <div class="card-header bg-success text-white">
+                        <h2 class="mb-0">
+                            <i class="fas fa-file-code"></i> Analysis Configuration
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                            {% if messages %}
+                                {% for category, message in messages %}
+                                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                                        {{ message }}
+                                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
+                        {% endwith %}
+
+                        {% if analysis_conf_exists and analysis_conf %}
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle"></i> 
+                                <strong>Existing analysis configuration found.</strong> The form below is pre-filled with current values.
+                            </div>
+                        {% endif %}
+
+                        {% if llm_config_exists and llm_config %}
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle"></i> 
+                                <strong>Existing LLM configuration found.</strong> The form below is pre-filled with current values.
+                            </div>
+                        {% endif %}
+
+                        <!-- Navigation Tabs -->
+                        <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis-config" type="button" role="tab">
+                                    <i class="fas fa-cog"></i> Analysis Config
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="llm-tab" data-bs-toggle="tab" data-bs-target="#llm-config" type="button" role="tab">
+                                    <i class="fas fa-robot"></i> LLM Config
+                                </button>
+                            </li>
+                        </ul>
+
+                        <form method="POST" action="{{ url_for('generate_analysis_conf_route') }}">
+                            <div class="tab-content" id="configTabsContent">
+                                <!-- Analysis Config Tab -->
+                                <div class="tab-pane fade show active" id="analysis-config" role="tabpanel">
+                                    <div class="config-section">
+                                        <h4 class="mb-3"><i class="fas fa-cog"></i> Analysis Configuration</h4>
+                                        
+                                        <!-- Articles Folder -->
+                                        <div class="mb-3">
+                                            <label for="articles_folder" class="form-label">
+                                                <i class="fas fa-folder"></i> Articles Folder <span class="text-danger">*</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="articles_folder" name="articles_folder" 
+                                                   value="{{ analysis_conf.get('articles_folder', 'articles') if analysis_conf else 'articles' }}" required>
+                                            <div class="form-text">Path to the folder where downloaded PDFs will be stored</div>
+                                        </div>
+
+                                        <!-- CSV Path -->
+                                        <div class="mb-3">
+                                            <label for="csv_path" class="form-label">
+                                                <i class="fas fa-file-csv"></i> CSV Path <span class="text-danger">*</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="csv_path" name="csv_path" 
+                                                   value="{{ analysis_conf.get('csv_path', default_csv_path) if analysis_conf else default_csv_path }}" required>
+                                            <div class="form-text">Path to the CSV file containing the final papers (usually from Step 10: Generate CSV)</div>
+                                        </div>
+
+                                        <!-- Seed File -->
+                                        <div class="mb-3">
+                                            <label for="seed_file" class="form-label">
+                                                <i class="fas fa-seedling"></i> Seed File <span class="text-danger">*</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="seed_file" name="seed_file" 
+                                                   value="{{ analysis_conf.get('seed_file', '') if analysis_conf else '' }}" required>
+                                            <div class="form-text">Name of the seed file (markdown file stored in the prompts folder)</div>
+                                        </div>
+
+                                        <!-- Output Path -->
+                                        <div class="mb-3">
+                                            <label for="output_path" class="form-label">
+                                                <i class="fas fa-save"></i> Output Path <span class="text-danger">*</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="output_path" name="output_path" 
+                                                   value="{{ analysis_conf.get('output_path', 'output') if analysis_conf else 'output' }}" required>
+                                            <div class="form-text">Path to the folder where analysis outputs will be stored</div>
+                                        </div>
+
+                                        <!-- Topics File -->
+                                        <div class="mb-3">
+                                            <label for="topics_file" class="form-label">
+                                                <i class="fas fa-list"></i> Topics File <span class="text-danger">*</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="topics_file" name="topics_file" 
+                                                   value="{{ analysis_conf.get('topics_file', '') if analysis_conf else '' }}" required>
+                                            <div class="form-text">Name of the topics file (used for topic modeling)</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- LLM Config Tab -->
+                                <div class="tab-pane fade" id="llm-config" role="tabpanel">
+                                    <div class="config-section">
+                                        <h4 class="mb-3"><i class="fas fa-robot"></i> LLM Configuration</h4>
+                                        <p class="text-muted mb-4">Configure settings for different LLM providers. API keys can be left empty to use environment variables.</p>
+
+                                        <!-- OpenAI Configuration -->
+                                        <div class="provider-section">
+                                            <div class="provider-header">
+                                                <i class="fab fa-openai"></i> OpenAI
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="openai_api_key" class="form-label">API Key</label>
+                                                    <input type="text" class="form-control" id="openai_api_key" name="openai_api_key" 
+                                                           value="{{ llm_config.get('openai', {}).get('api_key', '') if llm_config else '' }}">
+                                                    <div class="form-text">Leave empty to use OPENAI_API_KEY environment variable</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label for="openai_api_key_env" class="form-label">API Key Environment Variable</label>
+                                                    <input type="text" class="form-control" id="openai_api_key_env" name="openai_api_key_env" 
+                                                           value="{{ llm_config.get('openai', {}).get('api_key_env', 'OPENAI_API_KEY') if llm_config else 'OPENAI_API_KEY' }}">
+                                                </div>
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-4">
+                                                    <label for="openai_model" class="form-label">Model <span class="text-danger">*</span></label>
+                                                    <input type="text" class="form-control" id="openai_model" name="openai_model" 
+                                                           value="{{ llm_config.get('openai', {}).get('model', 'gpt-4o') if llm_config else 'gpt-4o' }}" required>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label for="openai_temperature" class="form-label">Temperature</label>
+                                                    <input type="number" class="form-control" id="openai_temperature" name="openai_temperature" step="0.1" min="0" max="2"
+                                                           value="{{ llm_config.get('openai', {}).get('temperature', 1.0) if llm_config else 1.0 }}">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label for="openai_max_output_tokens" class="form-label">Max Output Tokens</label>
+                                                    <input type="number" class="form-control" id="openai_max_output_tokens" name="openai_max_output_tokens" min="1"
+                                                           value="{{ llm_config.get('openai', {}).get('max_output_tokens', 5000) if llm_config else 5000 }}">
+                                                </div>
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="openai_context_length" class="form-label">Context Length</label>
+                                                    <input type="number" class="form-control" id="openai_context_length" name="openai_context_length" min="1"
+                                                           value="{{ llm_config.get('openai', {}).get('context_length', 20000) if llm_config else 20000 }}">
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Gemini Configuration -->
+                                        <div class="provider-section">
+                                            <div class="provider-header">
+                                                <i class="fab fa-google"></i> Gemini
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="gemini_api_key" class="form-label">API Key</label>
+                                                    <input type="text" class="form-control" id="gemini_api_key" name="gemini_api_key" 
+                                                           value="{{ llm_config.get('gemini', {}).get('api_key', '') if llm_config else '' }}">
+                                                    <div class="form-text">Leave empty to use GEMINI_API_KEY environment variable</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label for="gemini_api_key_env" class="form-label">API Key Environment Variable</label>
+                                                    <input type="text" class="form-control" id="gemini_api_key_env" name="gemini_api_key_env" 
+                                                           value="{{ llm_config.get('gemini', {}).get('api_key_env', 'GEMINI_API_KEY') if llm_config else 'GEMINI_API_KEY' }}">
+                                                </div>
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-4">
+                                                    <label for="gemini_model" class="form-label">Model <span class="text-danger">*</span></label>
+                                                    <input type="text" class="form-control" id="gemini_model" name="gemini_model" 
+                                                           value="{{ llm_config.get('gemini', {}).get('model', 'gemini-pro') if llm_config else 'gemini-pro' }}" required>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label for="gemini_temperature" class="form-label">Temperature</label>
+                                                    <input type="number" class="form-control" id="gemini_temperature" name="gemini_temperature" step="0.1" min="0" max="2"
+                                                           value="{{ llm_config.get('gemini', {}).get('temperature', 0.7) if llm_config else 0.7 }}">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label for="gemini_max_output_tokens" class="form-label">Max Output Tokens</label>
+                                                    <input type="number" class="form-control" id="gemini_max_output_tokens" name="gemini_max_output_tokens" min="1"
+                                                           value="{{ llm_config.get('gemini', {}).get('max_output_tokens', 5000) if llm_config else 5000 }}">
+                                                </div>
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="gemini_context_length" class="form-label">Context Length</label>
+                                                    <input type="number" class="form-control" id="gemini_context_length" name="gemini_context_length" min="1"
+                                                           value="{{ llm_config.get('gemini', {}).get('context_length', 16385) if llm_config else 16385 }}">
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Anthropic Configuration -->
+                                        <div class="provider-section">
+                                            <div class="provider-header">
+                                                <i class="fas fa-brain"></i> Anthropic
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="anthropic_api_key" class="form-label">API Key</label>
+                                                    <input type="text" class="form-control" id="anthropic_api_key" name="anthropic_api_key" 
+                                                           value="{{ llm_config.get('anthropic', {}).get('api_key', '') if llm_config else '' }}">
+                                                    <div class="form-text">Leave empty to use ANTHROPIC_API_KEY environment variable</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label for="anthropic_api_key_env" class="form-label">API Key Environment Variable</label>
+                                                    <input type="text" class="form-control" id="anthropic_api_key_env" name="anthropic_api_key_env" 
+                                                           value="{{ llm_config.get('anthropic', {}).get('api_key_env', 'ANTHROPIC_API_KEY') if llm_config else 'ANTHROPIC_API_KEY' }}">
+                                                </div>
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-4">
+                                                    <label for="anthropic_model" class="form-label">Model <span class="text-danger">*</span></label>
+                                                    <input type="text" class="form-control" id="anthropic_model" name="anthropic_model" 
+                                                           value="{{ llm_config.get('anthropic', {}).get('model', 'claude-3-sonnet-20240229') if llm_config else 'claude-3-sonnet-20240229' }}" required>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label for="anthropic_temperature" class="form-label">Temperature</label>
+                                                    <input type="number" class="form-control" id="anthropic_temperature" name="anthropic_temperature" step="0.1" min="0" max="2"
+                                                           value="{{ llm_config.get('anthropic', {}).get('temperature', 0.7) if llm_config else 0.7 }}">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label for="anthropic_max_output_tokens" class="form-label">Max Output Tokens</label>
+                                                    <input type="number" class="form-control" id="anthropic_max_output_tokens" name="anthropic_max_output_tokens" min="1"
+                                                           value="{{ llm_config.get('anthropic', {}).get('max_output_tokens', 5000) if llm_config else 5000 }}">
+                                                </div>
+                                            </div>
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="anthropic_context_length" class="form-label">Context Length</label>
+                                                    <input type="number" class="form-control" id="anthropic_context_length" name="anthropic_context_length" min="1"
+                                                           value="{{ llm_config.get('anthropic', {}).get('context_length', 16385) if llm_config else 16385 }}">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Buttons -->
+                            <div class="d-flex gap-2 mt-4">
+                                <button type="submit" class="btn btn-success btn-lg">
+                                    <i class="fas fa-save"></i> Save All Configurations
+                                </button>
+                                <a href="{{ url_for('index') }}" class="btn btn-secondary btn-lg">
+                                    <i class="fas fa-arrow-left"></i> Cancel
+                                </a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card shadow mt-4">
+                    <div class="card-body">
+                        <h5><i class="fas fa-question-circle"></i> Help</h5>
+                        <h6 class="mt-3">Analysis Configuration:</h6>
+                        <ul>
+                            <li><strong>Articles Folder:</strong> Folder where downloaded PDF files will be stored</li>
+                            <li><strong>CSV Path:</strong> Path to the final CSV file from the snowballing workflow (Step 10: Generate CSV)</li>
+                            <li><strong>Seed File:</strong> Markdown file stored in the prompts folder, serves as a seed for analysis tasks</li>
+                            <li><strong>Output Path:</strong> Folder where analysis results will be saved</li>
+                            <li><strong>Topics File:</strong> File name for topics data used in topic modeling</li>
+                        </ul>
+                        <h6 class="mt-3">LLM Configuration:</h6>
+                        <ul>
+                            <li><strong>API Keys:</strong> Leave empty to use environment variables. Otherwise, provide the API key directly.</li>
+                            <li><strong>Model:</strong> The model name to use for each provider (e.g., gpt-4o, gemini-pro, claude-3-sonnet-20240229)</li>
+                            <li><strong>Temperature:</strong> Controls randomness in outputs (0.0 = deterministic, 2.0 = very random)</li>
+                            <li><strong>Context Length:</strong> Maximum number of tokens the model can process in one request</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
