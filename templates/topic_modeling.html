@@ -102,7 +102,7 @@
                                     </button>
                                 </div>
                                 <div class="row mb-2">
-                                    <div class="col-md-6">
+                                    <div class="col-md-4">
                                         <label for="step1_seed_file" class="form-label">
                                             <i class="fas fa-seedling"></i> Seed File <span class="text-danger">*</span>
                                         </label>
@@ -118,12 +118,13 @@
                                             <input type="file" id="step1_seed_file_input" accept=".md,.txt" style="display: none;" onchange="handleFileSelect(event, 'step1_seed_file')">
                                         </div>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-4">
                                         <label for="step1_prompt_file" class="form-label">
                                             <i class="fas fa-file-alt"></i> Prompt File <span class="text-muted">(Optional)</span>
                                         </label>
                                         <div class="input-group">
                                             <input type="text" class="form-control" id="step1_prompt_file" 
+                                                   value="utils/prompts/topic_modeling_prompts/level1.txt"
                                                    placeholder="Leave empty to use prompt_lvl1.txt from output directory">
                                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step1_prompt_file_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
@@ -133,6 +134,52 @@
                                             </button>
                                             <input type="file" id="step1_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step1_prompt_file')">
                                         </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="step1_output_file" class="form-label">
+                                            <i class="fas fa-file-export"></i> Topics Output File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step1_output_file" 
+                                                   value="utils/article_llm_analysis/data/topics_lvl1.md">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step1_output_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step1_output_file', 'Topics Output File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step1_output_file_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step1_output_file')">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step1_data_file" class="form-label">
+                                            <i class="fas fa-database"></i> Data File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step1_data_file" 
+                                                   placeholder="Leave empty to auto-generate data.jsonl in output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step1_data_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step1_data_file_input" accept=".jsonl" style="display: none;" onchange="handleFileSelect(event, 'step1_data_file')">
+                                        </div>
+                                        <div class="form-text">JSONL file with extracted text from PDFs. If not provided, will be generated automatically.</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step1_generation_file" class="form-label">
+                                            <i class="fas fa-file-code"></i> Generation Output File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step1_generation_file" 
+                                                   placeholder="Leave empty to use generation_lvl1.json in output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step1_generation_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step1_generation_file_input" accept=".json" style="display: none;" onchange="handleFileSelect(event, 'step1_generation_file')">
+                                        </div>
+                                        <div class="form-text">File to write results (original texts with corresponding generated topics) to.</div>
                                     </div>
                                 </div>
                             </div>
@@ -152,28 +199,29 @@
                                     </button>
                                 </div>
                                 <div class="row mb-2">
-                                    <div class="col-md-6">
+                                    <div class="col-md-4">
                                         <label for="step2_seed_file" class="form-label">
-                                            <i class="fas fa-seedling"></i> Seed File <span class="text-danger">*</span>
+                                            <i class="fas fa-seedling"></i> Seed Topics File <span class="text-danger">*</span>
                                         </label>
                                         <div class="input-group">
                                             <input type="text" class="form-control" id="step2_seed_file" 
-                                                   value="{{ analysis_conf.get('output_path', 'output') if analysis_conf else 'output' }}/{{ analysis_conf.get('seed_file', 'seed.md') if analysis_conf else 'seed.md' }}">
+                                                   value="utils/article_llm_analysis/data/topics_lvl1.md">
                                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step2_seed_file_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
                                             </button>
-                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step2_seed_file', 'Seed File')" title="Edit/Create file">
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step2_seed_file', 'Seed Topics File')" title="Edit/Create file">
                                                 <i class="fas fa-edit"></i> Edit
                                             </button>
                                             <input type="file" id="step2_seed_file_input" accept=".md,.txt" style="display: none;" onchange="handleFileSelect(event, 'step2_seed_file')">
                                         </div>
                                     </div>
-                                    <div class="col-md-6">
+                                    <div class="col-md-4">
                                         <label for="step2_prompt_file" class="form-label">
                                             <i class="fas fa-file-alt"></i> Prompt File <span class="text-muted">(Optional)</span>
                                         </label>
                                         <div class="input-group">
                                             <input type="text" class="form-control" id="step2_prompt_file" 
+                                                   value="utils/prompts/topic_modeling_prompts/level2.txt"
                                                    placeholder="Leave empty to use prompt_lvl2.txt from output directory">
                                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step2_prompt_file_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
@@ -184,21 +232,67 @@
                                             <input type="file" id="step2_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step2_prompt_file')">
                                         </div>
                                     </div>
+                                    <div class="col-md-4">
+                                        <label for="step2_output_file" class="form-label">
+                                            <i class="fas fa-file-export"></i> Topics Output File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step2_output_file" 
+                                                   value="utils/article_llm_analysis/data/topics_lvl2.md">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step2_output_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step2_output_file', 'Topics Output File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step2_output_file_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step2_output_file')">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step2_data_file" class="form-label">
+                                            <i class="fas fa-database"></i> Data File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step2_data_file" 
+                                                   placeholder="Leave empty to use generation_lvl1.json from output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step2_data_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step2_data_file_input" accept=".json,.jsonl" style="display: none;" onchange="handleFileSelect(event, 'step2_data_file')">
+                                        </div>
+                                        <div class="form-text">Can be either data.jsonl or the Generation Output File from Step 1. Defaults to generation_lvl1.json.</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step2_generation_file" class="form-label">
+                                            <i class="fas fa-file-code"></i> Generation Output File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step2_generation_file" 
+                                                   placeholder="Leave empty to use generation_lvl2.json in output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step2_generation_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step2_generation_file_input" accept=".json" style="display: none;" onchange="handleFileSelect(event, 'step2_generation_file')">
+                                        </div>
+                                        <div class="form-text">File to write results (original texts with corresponding generated topics) to.</div>
+                                    </div>
                                 </div>
                                 <div class="alert alert-info mb-0">
-                                    <small><strong>Note:</strong> Level 1 topics file (topics_lvl1.md) is auto-detected from output directory</small>
+                                    <small><strong>Note:</strong> The seed topics file should be the topics output file from Step 1 (Level 1). By default, it uses "utils/article_llm_analysis/data/topics_lvl1.md".</small>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Step 3: Assign -->
+                        <!-- Step 3: Refine -->
                         <div class="card step-card shadow-sm">
                             <div class="card-body">
                                 <div class="d-flex align-items-center mb-3">
                                     <span class="step-number me-3">3</span>
                                     <div class="flex-grow-1">
-                                        <h4 class="mb-1">Assign - Assign Topics to Documents</h4>
-                                        <p class="text-muted mb-0">Assign topics to each document based on content</p>
+                                        <h4 class="mb-1">Refine - Refine Topics</h4>
+                                        <p class="text-muted mb-0">Merge and refine topics to improve quality</p>
                                     </div>
                                     <button class="btn btn-success btn-lg" id="step3Btn" onclick="executeStep(3)">
                                         <i class="fas fa-play"></i> Run Step 3
@@ -207,11 +301,11 @@
                                 <div class="row mb-2">
                                     <div class="col-md-6">
                                         <label for="step3_topic_file" class="form-label">
-                                            <i class="fas fa-list"></i> Topics File <span class="text-muted">(Optional)</span>
+                                            <i class="fas fa-list"></i> Topics File <span class="text-danger">*</span>
                                         </label>
                                         <div class="input-group">
                                             <input type="text" class="form-control" id="step3_topic_file" 
-                                                   placeholder="Auto-detects from topics_lvl1.md, topics_lvl2.md, or topics_refined.md">
+                                                   placeholder="Path to topics file (e.g., topics_lvl1.md or topics_lvl2.md)">
                                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step3_topic_file_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
                                             </button>
@@ -227,7 +321,8 @@
                                         </label>
                                         <div class="input-group">
                                             <input type="text" class="form-control" id="step3_prompt_file" 
-                                                   placeholder="Leave empty to use prompt_assign.txt from output directory">
+                                                   value="utils/prompts/topic_modeling_prompts/refinement.txt"
+                                                   placeholder="Leave empty to use prompt_refine.txt from output directory">
                                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step3_prompt_file_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
                                             </button>
@@ -238,17 +333,65 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step3_generation_file" class="form-label">
+                                            <i class="fas fa-file-code"></i> Generation File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step3_generation_file" 
+                                                   placeholder="Path to generation JSON file (e.g., generation_lvl1.json or generation_lvl2.json)">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step3_generation_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step3_generation_file_input" accept=".json" style="display: none;" onchange="handleFileSelect(event, 'step3_generation_file')">
+                                        </div>
+                                        <div class="form-text">Path to the generation JSON file from topic generation stage or previous refinement iteration.</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step3_out_file" class="form-label">
+                                            <i class="fas fa-file-export"></i> Refined Topics Output File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step3_out_file" 
+                                                   value="utils/article_llm_analysis/data/topics_refined.md"
+                                                   placeholder="Path to save refined topics file">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step3_out_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step3_out_file_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step3_out_file')">
+                                        </div>
+                                        <div class="form-text">Path to save the refined topic file.</div>
+                                    </div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-12">
+                                        <label for="step3_updated_file" class="form-label">
+                                            <i class="fas fa-file-code"></i> Updated Generation File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step3_updated_file" 
+                                                   value="utils/article_llm_analysis/data/generation_refined.json"
+                                                   placeholder="Path to save updated generation JSON">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step3_updated_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step3_updated_file_input" accept=".json" style="display: none;" onchange="handleFileSelect(event, 'step3_updated_file')">
+                                        </div>
+                                        <div class="form-text">Path to save the updated generation JSON file.</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Step 4: Refine -->
+                        <!-- Step 4: Assign -->
                         <div class="card step-card shadow-sm">
                             <div class="card-body">
                                 <div class="d-flex align-items-center mb-3">
                                     <span class="step-number me-3">4</span>
                                     <div class="flex-grow-1">
-                                        <h4 class="mb-1">Refine - Refine Topics</h4>
-                                        <p class="text-muted mb-0">Merge and refine topics to improve quality</p>
+                                        <h4 class="mb-1">Assign - Assign Topics to Documents</h4>
+                                        <p class="text-muted mb-0">Assign topics to each document based on content</p>
                                     </div>
                                     <button class="btn btn-success btn-lg" id="step4Btn" onclick="executeStep(4)">
                                         <i class="fas fa-play"></i> Run Step 4
@@ -257,11 +400,11 @@
                                 <div class="row mb-2">
                                     <div class="col-md-6">
                                         <label for="step4_topic_file" class="form-label">
-                                            <i class="fas fa-list"></i> Topics File <span class="text-danger">*</span>
+                                            <i class="fas fa-list"></i> Topics File <span class="text-muted">(Optional)</span>
                                         </label>
                                         <div class="input-group">
                                             <input type="text" class="form-control" id="step4_topic_file" 
-                                                   placeholder="Path to topics file (e.g., topics_lvl1.md)">
+                                                   placeholder="Auto-detects from topics_lvl1.md, topics_lvl2.md, or topics_refined.md">
                                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step4_topic_file_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
                                             </button>
@@ -270,6 +413,7 @@
                                             </button>
                                             <input type="file" id="step4_topic_file_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step4_topic_file')">
                                         </div>
+                                        <div class="form-text">File containing topic list (obtained from the generation/refinement stage).</div>
                                     </div>
                                     <div class="col-md-6">
                                         <label for="step4_prompt_file" class="form-label">
@@ -277,7 +421,8 @@
                                         </label>
                                         <div class="input-group">
                                             <input type="text" class="form-control" id="step4_prompt_file" 
-                                                   placeholder="Leave empty to use prompt_refine.txt from output directory">
+                                                   value="utils/prompts/topic_modeling_prompts/assignment.txt"
+                                                   placeholder="Leave empty to use prompt_assign.txt from output directory">
                                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step4_prompt_file_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
                                             </button>
@@ -286,6 +431,37 @@
                                             </button>
                                             <input type="file" id="step4_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step4_prompt_file')">
                                         </div>
+                                    </div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step4_data_file" class="form-label">
+                                            <i class="fas fa-database"></i> Data File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step4_data_file" 
+                                                   placeholder="Leave empty to use data.jsonl from output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step4_data_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step4_data_file_input" accept=".jsonl,.json" style="display: none;" onchange="handleFileSelect(event, 'step4_data_file')">
+                                        </div>
+                                        <div class="form-text">Can be data.jsonl or the updated generation file from the refine step. Defaults to data.jsonl.</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step4_output_file" class="form-label">
+                                            <i class="fas fa-file-export"></i> Assignments Output File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step4_output_file" 
+                                                   value="utils/article_llm_analysis/data/assignments.jsonl"
+                                                   placeholder="Path to save assignments">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step4_output_file_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step4_output_file_input" accept=".jsonl" style="display: none;" onchange="handleFileSelect(event, 'step4_output_file')">
+                                        </div>
+                                        <div class="form-text">Path to save the assignments file.</div>
                                     </div>
                                 </div>
                             </div>
@@ -305,53 +481,72 @@
                                     </button>
                                 </div>
                                 <div class="row mb-2">
-                                    <div class="col-md-4">
-                                        <label for="step5_topic_file" class="form-label">
-                                            <i class="fas fa-list"></i> Topics File <span class="text-muted">(Optional)</span>
+                                    <div class="col-md-6">
+                                        <label for="step5_data_path" class="form-label">
+                                            <i class="fas fa-database"></i> Data File <span class="text-danger">*</span>
                                         </label>
                                         <div class="input-group">
-                                            <input type="text" class="form-control" id="step5_topic_file" 
-                                                   placeholder="Auto-detects from topics files">
-                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_topic_file_input').click()" title="Browse for file">
+                                            <input type="text" class="form-control" id="step5_data_path" 
+                                                   value="utils/article_llm_analysis/data/assignments.jsonl"
+                                                   placeholder="Input data file (output file from assignment stage)">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_data_path_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
                                             </button>
-                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step5_topic_file', 'Topics File')" title="Edit/Create file">
-                                                <i class="fas fa-edit"></i> Edit
-                                            </button>
-                                            <input type="file" id="step5_topic_file_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step5_topic_file')">
+                                            <input type="file" id="step5_data_path_input" accept=".jsonl" style="display: none;" onchange="handleFileSelect(event, 'step5_data_path')">
                                         </div>
+                                        <div class="form-text">Input data file (should be the output file from the assignment stage).</div>
                                     </div>
-                                    <div class="col-md-4">
-                                        <label for="step5_assignments_file" class="form-label">
-                                            <i class="fas fa-file-code"></i> Assignments File <span class="text-danger">*</span>
-                                        </label>
-                                        <div class="input-group">
-                                            <input type="text" class="form-control" id="step5_assignments_file" 
-                                                   placeholder="assignments_new.jsonl">
-                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_assignments_file_input').click()" title="Browse for file">
-                                                <i class="fas fa-folder-open"></i>
-                                            </button>
-                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step5_assignments_file', 'Assignments File')" title="Edit/Create file">
-                                                <i class="fas fa-edit"></i> Edit
-                                            </button>
-                                            <input type="file" id="step5_assignments_file_input" accept=".jsonl" style="display: none;" onchange="handleFileSelect(event, 'step5_assignments_file')">
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label for="step5_prompt_file" class="form-label">
+                                    <div class="col-md-6">
+                                        <label for="step5_prompt_path" class="form-label">
                                             <i class="fas fa-file-alt"></i> Prompt File <span class="text-muted">(Optional)</span>
                                         </label>
                                         <div class="input-group">
-                                            <input type="text" class="form-control" id="step5_prompt_file" 
-                                                   placeholder="Leave empty to use prompt_correct.txt">
-                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_prompt_file_input').click()" title="Browse for file">
+                                            <input type="text" class="form-control" id="step5_prompt_path" 
+                                                   value="utils/prompts/topic_modeling_prompts/correction.txt"
+                                                   placeholder="Leave empty to use prompt_correct.txt from output directory">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_prompt_path_input').click()" title="Browse for file">
                                                 <i class="fas fa-folder-open"></i>
                                             </button>
-                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step5_prompt_file', 'Prompt File')" title="Edit/Create file">
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step5_prompt_path', 'Prompt File')" title="Edit/Create file">
                                                 <i class="fas fa-edit"></i> Edit
                                             </button>
-                                            <input type="file" id="step5_prompt_file_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step5_prompt_file')">
+                                            <input type="file" id="step5_prompt_path_input" accept=".txt,.md" style="display: none;" onchange="handleFileSelect(event, 'step5_prompt_path')">
                                         </div>
+                                        <div class="form-text">File to read prompt from.</div>
+                                    </div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label for="step5_topic_path" class="form-label">
+                                            <i class="fas fa-list"></i> Topics File <span class="text-muted">(Optional)</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step5_topic_path" 
+                                                   placeholder="Auto-detects from topics_lvl1.md, topics_lvl2.md, or topics_refined.md">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_topic_path_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" onclick="openEditModal('step5_topic_path', 'Topics File')" title="Edit/Create file">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <input type="file" id="step5_topic_path_input" accept=".md" style="display: none;" onchange="handleFileSelect(event, 'step5_topic_path')">
+                                        </div>
+                                        <div class="form-text">File containing topic list (obtained from the generation/refinement stage).</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="step5_output_path" class="form-label">
+                                            <i class="fas fa-file-export"></i> Output File <span class="text-danger">*</span>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="step5_output_path" 
+                                                   value="utils/article_llm_analysis/data/corrected_assignments.jsonl"
+                                                   placeholder="Path to save corrected assignments">
+                                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('step5_output_path_input').click()" title="Browse for file">
+                                                <i class="fas fa-folder-open"></i>
+                                            </button>
+                                            <input type="file" id="step5_output_path_input" accept=".jsonl" style="display: none;" onchange="handleFileSelect(event, 'step5_output_path')">
+                                        </div>
+                                        <div class="form-text">Output file for corrected assignments.</div>
                                     </div>
                                 </div>
                             </div>
@@ -429,6 +624,22 @@
         let currentEditInputId = null;
         const editFileModal = new bootstrap.Modal(document.getElementById('editFileModal'));
         
+        // Auto-sync Step 2 seed file with Step 1 output file
+        document.addEventListener('DOMContentLoaded', function() {
+            const step1OutputFile = document.getElementById('step1_output_file');
+            const step2SeedFile = document.getElementById('step2_seed_file');
+            
+            if (step1OutputFile && step2SeedFile) {
+                step1OutputFile.addEventListener('change', function() {
+                    // Only auto-update if Step 2 seed file still has the default value
+                    const defaultStep2Seed = 'utils/article_llm_analysis/data/topics_lvl1.md';
+                    if (step2SeedFile.value === defaultStep2Seed) {
+                        step2SeedFile.value = step1OutputFile.value;
+                    }
+                });
+            }
+        });
+        
         function handleFileSelect(event, targetInputId) {
             const file = event.target.files[0];
             if (file) {
@@ -448,43 +659,70 @@
             let stepParams = {};
             if (stepNumber === 1) {
                 stepParams.seed_file = document.getElementById('step1_seed_file').value;
+                stepParams.output_file = document.getElementById('step1_output_file').value;
                 const promptFile = document.getElementById('step1_prompt_file').value;
                 if (promptFile) {
                     stepParams.prompt_file = promptFile;
                 }
+                const dataFile = document.getElementById('step1_data_file').value.trim();
+                if (dataFile) {
+                    stepParams.data_file = dataFile;
+                }
+                const generationFile = document.getElementById('step1_generation_file').value.trim();
+                if (generationFile) {
+                    stepParams.generation_file = generationFile;
+                }
             } else if (stepNumber === 2) {
                 stepParams.seed_file = document.getElementById('step2_seed_file').value;
+                stepParams.output_file = document.getElementById('step2_output_file').value;
                 const promptFile = document.getElementById('step2_prompt_file').value;
                 if (promptFile) {
                     stepParams.prompt_file = promptFile;
                 }
-            } else if (stepNumber === 3) {
-                const topicFile = document.getElementById('step3_topic_file').value;
-                if (topicFile) {
-                    stepParams.topic_file = topicFile;
+                const dataFile = document.getElementById('step2_data_file').value.trim();
+                if (dataFile) {
+                    stepParams.data_file = dataFile;
                 }
+                const generationFile = document.getElementById('step2_generation_file').value.trim();
+                if (generationFile) {
+                    stepParams.generation_file = generationFile;
+                }
+            } else if (stepNumber === 3) {
+                // Step 3: Refine
+                stepParams.topic_file = document.getElementById('step3_topic_file').value;
+                stepParams.generation_file = document.getElementById('step3_generation_file').value;
+                stepParams.out_file = document.getElementById('step3_out_file').value;
+                stepParams.updated_file = document.getElementById('step3_updated_file').value;
                 const promptFile = document.getElementById('step3_prompt_file').value;
                 if (promptFile) {
                     stepParams.prompt_file = promptFile;
                 }
             } else if (stepNumber === 4) {
-                stepParams.topic_file = document.getElementById('step4_topic_file').value;
-                const promptFile = document.getElementById('step4_prompt_file').value;
-                if (promptFile) {
-                    stepParams.prompt_file = promptFile;
-                }
-            } else if (stepNumber === 5) {
-                const topicFile = document.getElementById('step5_topic_file').value;
+                // Step 4: Assign
+                const topicFile = document.getElementById('step4_topic_file').value.trim();
                 if (topicFile) {
                     stepParams.topic_file = topicFile;
                 }
-                const assignmentsFile = document.getElementById('step5_assignments_file').value;
-                if (assignmentsFile) {
-                    stepParams.assignments_file = assignmentsFile;
-                }
-                const promptFile = document.getElementById('step5_prompt_file').value;
+                const promptFile = document.getElementById('step4_prompt_file').value.trim();
                 if (promptFile) {
                     stepParams.prompt_file = promptFile;
+                }
+                const dataFile = document.getElementById('step4_data_file').value.trim();
+                if (dataFile) {
+                    stepParams.data_file = dataFile;
+                }
+                stepParams.output_file = document.getElementById('step4_output_file').value;
+            } else if (stepNumber === 5) {
+                // Step 5: Correct
+                stepParams.data_path = document.getElementById('step5_data_path').value;
+                stepParams.output_path = document.getElementById('step5_output_path').value;
+                const topicPath = document.getElementById('step5_topic_path').value.trim();
+                if (topicPath) {
+                    stepParams.topic_path = topicPath;
+                }
+                const promptPath = document.getElementById('step5_prompt_path').value.trim();
+                if (promptPath) {
+                    stepParams.prompt_path = promptPath;
                 }
             }
             
@@ -503,8 +741,8 @@
             const stepNames = {
                 1: 'level1',
                 2: 'level2',
-                3: 'assign',
-                4: 'refine',
+                3: 'refine',
+                4: 'assign',
                 5: 'correct'
             };
             
@@ -559,7 +797,7 @@
         function openEditModal(inputId, fileLabel) {
             currentEditInputId = inputId;
             const filePathInput = document.getElementById(inputId);
-            let filePath = filePathInput.value;
+            let filePath = filePathInput.value.trim();
             
             // If no file path is specified, use a default based on the input type
             if (!filePath) {
@@ -567,7 +805,20 @@
                 if (inputId.includes('seed')) {
                     filePath = `${outputDir}/seed.md`;
                 } else if (inputId.includes('prompt')) {
-                    filePath = `${outputDir}/prompt_lvl1.txt`;
+                    // Determine default prompt file based on step number
+                    if (inputId.includes('step1')) {
+                        filePath = 'utils/prompts/topic_modeling_prompts/level1.txt';
+                    } else if (inputId.includes('step2')) {
+                        filePath = 'utils/prompts/topic_modeling_prompts/level2.txt';
+                    } else if (inputId.includes('step3')) {
+                        filePath = 'utils/prompts/topic_modeling_prompts/assignment.txt';
+                    } else if (inputId.includes('step4')) {
+                        filePath = 'utils/prompts/topic_modeling_prompts/refinement.txt';
+                    } else if (inputId.includes('step5')) {
+                        filePath = 'utils/prompts/topic_modeling_prompts/correction.txt';
+                    } else {
+                        filePath = `${outputDir}/prompt_lvl1.txt`;
+                    }
                 }
             }
             

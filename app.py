@@ -319,9 +319,13 @@ def get_workflow_info():
     workflow_state = load_workflow_state()
     
     if not db_exists:
+        # If no database exists and no workflow state, show default message
+        last_step = workflow_state.get('last_step')
+        if not last_step:
+            last_step = None  # Will be displayed as "No steps performed yet" in templates
         return {
             'current_iteration': workflow_state.get('current_iteration'),
-            'current_step': workflow_state.get('last_step', "Step 0: Generate Snowball Start"),
+            'current_step': last_step,
             'content_approved_count': 0,
             'new_articles_count': 0,
             'total_articles': 0,
@@ -357,10 +361,6 @@ def get_workflow_info():
             if current_iteration is not None:
                 db_manager.update_current_iteration(current_iteration)
         
-        # If still no current step, set default
-        if current_step is None:
-            current_step = "Step 0: Generate Snowball Start"
-        
         # Get all articles to calculate stats
         all_articles = db_manager.get_iteration_data()
         
@@ -375,19 +375,22 @@ def get_workflow_info():
             except:
                 pass
         
+        # For iteration 0, always use "Step 0" regardless of max_selected or saved step
+        # (iteration 0 articles are auto-approved but didn't go through the steps)
+        if current_iteration == 0:
+            current_step = "Step 0: Generate Snowball Start"
+            # Save this to database to ensure it's persisted
+            try:
+                db_manager.update_last_step(current_step)
+            except:
+                pass
+        # If still no current step, set default
+        elif current_step is None:
+            current_step = "Step 0: Generate Snowball Start"
+        
         # Only infer step if we don't have an explicit last_step from database
-        # For iteration 0, always show "Step 0" since articles are auto-approved but never went through Step 7
-        if current_step is None:
-            # Need to infer step
-            if current_iteration == 0:
-                # For iteration 0, default to Step 0 (articles are automatically content_approved but didn't go through that step)
-                current_step = "Step 0: Generate Snowball Start"
-                # Save this to database
-                try:
-                    db_manager.update_last_step(current_step)
-                except:
-                    pass
-            elif current_iteration is not None:
+        # (and we're not on iteration 0, which is handled above)
+        if current_step is None and current_iteration != 0:
                 if max_selected is not None:
                     try:
                         max_selected_int = int(max_selected)
@@ -2492,24 +2495,64 @@ def get_articles_for_title_filter():
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
         
-        # Get articles with METADATA_APPROVED status that haven't been title-filtered yet
-        articles = db_manager.get_iteration_data(
-            iteration=iteration,
-            selected=SelectionStage.METADATA_APPROVED
-        )
+        # Check if metadata filtering step was skipped
+        workflow_state = load_workflow_state()
+        skipped_steps = workflow_state.get('skipped_steps', [])
+        metadata_skipped = 'Step 5: Filter by Metadata' in skipped_steps
+        
+        # Get articles that need title filtering
+        # If metadata filtering was skipped, also include NOT_SELECTED articles
+        # (they should have been auto-approved but might not have been updated)
+        if metadata_skipped:
+            # Get articles that are NOT_SELECTED or METADATA_APPROVED but not yet title-filtered
+            articles_metadata = db_manager.get_iteration_data(
+                iteration=iteration,
+                selected=SelectionStage.METADATA_APPROVED
+            )
+            articles_not_selected = db_manager.get_iteration_data(
+                iteration=iteration,
+                selected=SelectionStage.NOT_SELECTED
+            )
+            # Combine and deduplicate by ID
+            article_dict = {}
+            for article in articles_metadata:
+                article_dict[article.id] = article
+            for article in articles_not_selected:
+                if article.id not in article_dict:
+                    article_dict[article.id] = article
+            articles = list(article_dict.values())
+        else:
+            # Normal case: get METADATA_APPROVED articles
+            # But also check for NOT_SELECTED if no METADATA_APPROVED found (in case step wasn't run)
+            articles = db_manager.get_iteration_data(
+                iteration=iteration,
+                selected=SelectionStage.METADATA_APPROVED
+            )
+            # If no METADATA_APPROVED articles found, also try NOT_SELECTED
+            # (this handles the case where metadata filtering step wasn't run)
+            if len(articles) == 0:
+                articles = db_manager.get_iteration_data(
+                    iteration=iteration,
+                    selected=SelectionStage.NOT_SELECTED
+                )
         
         # Filter out articles that are already title-approved or title-filtered-out
+        # (check if selected status is TITLE_APPROVED or higher)
         articles_data = []
         for article in articles:
-            articles_data.append({
-                'id': article.id,
-                'title': article.title or '',
-                'venue': article.venue or '',
-                'pub_year': article.pub_year or '',
-                'eprint_url': article.eprint_url or '',
-                'authors': article.authors or '',
-                'title_reason': getattr(article, 'title_reason', '') or ''
-            })
+            # Check if article is already title-approved or higher
+            selected_int = int(article.selected) if article.selected is not None else 0
+            # Only include if not already title-approved or higher
+            if selected_int < SelectionStage.TITLE_APPROVED.value:
+                articles_data.append({
+                    'id': article.id,
+                    'title': article.title or '',
+                    'venue': article.venue or '',
+                    'pub_year': article.pub_year or '',
+                    'eprint_url': article.eprint_url or '',
+                    'authors': article.authors or '',
+                    'title_reason': getattr(article, 'title_reason', '') or ''
+                })
         
         return jsonify({
             'success': True,
@@ -4709,6 +4752,31 @@ def topic_modeling_api():
                 return jsonify({'error': f'Seed file not found: {step_seed_file}'}), 400
             kwargs['seed_file'] = step_seed_file
             
+            # Get output_file from step-specific params
+            step_output_file = data.get('output_file', '')
+            if step_output_file:
+                # Create directory if it doesn't exist
+                output_file_dir = os.path.dirname(step_output_file)
+                if output_file_dir and not os.path.exists(output_file_dir):
+                    os.makedirs(output_file_dir, exist_ok=True)
+                kwargs['output_file'] = step_output_file
+            
+            # Get data_file from step-specific params
+            step_data_file = data.get('data_file', '')
+            if step_data_file:
+                if not os.path.exists(step_data_file):
+                    return jsonify({'error': f'Data file not found: {step_data_file}'}), 400
+                kwargs['data_file'] = step_data_file
+            
+            # Get generation_file from step-specific params
+            step_generation_file = data.get('generation_file', '')
+            if step_generation_file:
+                # Create directory if it doesn't exist
+                generation_file_dir = os.path.dirname(step_generation_file)
+                if generation_file_dir and not os.path.exists(generation_file_dir):
+                    os.makedirs(generation_file_dir, exist_ok=True)
+                kwargs['generation_file'] = step_generation_file
+            
             # Get prompt_file from step-specific params
             step_prompt_file = data.get('prompt_file', '')
             if step_prompt_file:
@@ -4729,10 +4797,30 @@ def topic_modeling_api():
                 return jsonify({'error': f'Seed file not found: {step_seed_file}'}), 400
             kwargs['seed_file'] = step_seed_file
             
-            level1_topics_file = os.path.join(output_dir, 'topics_lvl1.md')
-            if not os.path.exists(level1_topics_file):
-                return jsonify({'error': f'Level 1 topics file not found: {level1_topics_file}. Run step 1 first.'}), 400
-            kwargs['level1_topics_file'] = level1_topics_file
+            # Get output_file from step-specific params
+            step_output_file = data.get('output_file', '')
+            if step_output_file:
+                # Create directory if it doesn't exist
+                output_file_dir = os.path.dirname(step_output_file)
+                if output_file_dir and not os.path.exists(output_file_dir):
+                    os.makedirs(output_file_dir, exist_ok=True)
+                kwargs['output_file'] = step_output_file
+            
+            # Get data_file from step-specific params
+            step_data_file = data.get('data_file', '')
+            if step_data_file:
+                if not os.path.exists(step_data_file):
+                    return jsonify({'error': f'Data file not found: {step_data_file}'}), 400
+                kwargs['data_file'] = step_data_file
+            
+            # Get generation_file from step-specific params
+            step_generation_file = data.get('generation_file', '')
+            if step_generation_file:
+                # Create directory if it doesn't exist
+                generation_file_dir = os.path.dirname(step_generation_file)
+                if generation_file_dir and not os.path.exists(generation_file_dir):
+                    os.makedirs(generation_file_dir, exist_ok=True)
+                kwargs['generation_file'] = step_generation_file
             
             # Get prompt_file from step-specific params
             step_prompt_file = data.get('prompt_file', '')
@@ -4751,6 +4839,23 @@ def topic_modeling_api():
                 if not os.path.exists(step_topic_file):
                     return jsonify({'error': f'Topic file not found: {step_topic_file}'}), 400
                 kwargs['topic_file'] = step_topic_file
+            
+            # Get data_file from step-specific params (optional)
+            step_data_file = data.get('data_file', '')
+            if step_data_file:
+                if not os.path.exists(step_data_file):
+                    return jsonify({'error': f'Data file not found: {step_data_file}'}), 400
+                kwargs['data_file'] = step_data_file
+            
+            # Get output_file from step-specific params (required)
+            step_output_file = data.get('output_file', '')
+            if not step_output_file:
+                return jsonify({'error': 'Output file is required for assign step'}), 400
+            # Create directory if it doesn't exist
+            output_file_dir = os.path.dirname(step_output_file)
+            if output_file_dir and not os.path.exists(output_file_dir):
+                os.makedirs(output_file_dir, exist_ok=True)
+            kwargs['output_file'] = step_output_file
             
             # Get prompt_file from step-specific params
             step_prompt_file = data.get('prompt_file', '')
@@ -4771,6 +4876,34 @@ def topic_modeling_api():
                 return jsonify({'error': f'Topic file not found: {step_topic_file}'}), 400
             kwargs['topic_file'] = step_topic_file
             
+            # Get generation_file from step-specific params
+            step_generation_file = data.get('generation_file', '')
+            if not step_generation_file:
+                return jsonify({'error': 'Generation file is required for refine step'}), 400
+            if not os.path.exists(step_generation_file):
+                return jsonify({'error': f'Generation file not found: {step_generation_file}'}), 400
+            kwargs['generation_file'] = step_generation_file
+            
+            # Get out_file from step-specific params
+            step_out_file = data.get('out_file', '')
+            if not step_out_file:
+                return jsonify({'error': 'Output file is required for refine step'}), 400
+            # Create directory if it doesn't exist
+            out_file_dir = os.path.dirname(step_out_file)
+            if out_file_dir and not os.path.exists(out_file_dir):
+                os.makedirs(out_file_dir, exist_ok=True)
+            kwargs['out_file'] = step_out_file
+            
+            # Get updated_file from step-specific params
+            step_updated_file = data.get('updated_file', '')
+            if not step_updated_file:
+                return jsonify({'error': 'Updated file is required for refine step'}), 400
+            # Create directory if it doesn't exist
+            updated_file_dir = os.path.dirname(step_updated_file)
+            if updated_file_dir and not os.path.exists(updated_file_dir):
+                os.makedirs(updated_file_dir, exist_ok=True)
+            kwargs['updated_file'] = step_updated_file
+            
             # Get prompt_file from step-specific params
             step_prompt_file = data.get('prompt_file', '')
             if step_prompt_file:
@@ -4782,41 +4915,43 @@ def topic_modeling_api():
                 if os.path.exists(prompt_file_path):
                     kwargs['prompt_file'] = prompt_file_path
         elif step == 'correct':
-            # Get topic_file from step-specific params (optional)
-            step_topic_file = data.get('topic_file', '')
-            if step_topic_file:
-                if not os.path.exists(step_topic_file):
-                    return jsonify({'error': f'Topic file not found: {step_topic_file}'}), 400
-                kwargs['topic_file'] = step_topic_file
+            # Get data_path from step-specific params (required)
+            step_data_path = data.get('data_path', '')
+            if not step_data_path:
+                return jsonify({'error': 'Data path is required for correct step'}), 400
+            if not os.path.exists(step_data_path):
+                return jsonify({'error': f'Data file not found: {step_data_path}'}), 400
+            kwargs['data_path'] = step_data_path
             
-            # Get assignments_file from step-specific params
-            # The correct step looks for assignments_new.jsonl in output_dir
-            # If user provides a different path, we need to copy it or use it
-            step_assignments_file = data.get('assignments_file', '')
-            if step_assignments_file:
-                if not os.path.exists(step_assignments_file):
-                    return jsonify({'error': f'Assignments file not found: {step_assignments_file}'}), 400
-                # Copy to expected location if different
-                expected_assignments_file = os.path.join(output_dir, 'assignments_new.jsonl')
-                if step_assignments_file != expected_assignments_file:
-                    import shutil
-                    shutil.copy2(step_assignments_file, expected_assignments_file)
-            else:
-                # Check if default location exists
-                expected_assignments_file = os.path.join(output_dir, 'assignments_new.jsonl')
-                if not os.path.exists(expected_assignments_file):
-                    return jsonify({'error': f'Assignments file not found: {expected_assignments_file}. Run step 3 (Assign) first.'}), 400
+            # Get output_path from step-specific params (required)
+            step_output_path = data.get('output_path', '')
+            if not step_output_path:
+                return jsonify({'error': 'Output path is required for correct step'}), 400
+            # Create directory if it doesn't exist
+            output_path_dir = os.path.dirname(step_output_path)
+            if output_path_dir and not os.path.exists(output_path_dir):
+                os.makedirs(output_path_dir, exist_ok=True)
+            kwargs['output_path'] = step_output_path
             
-            # Get prompt_file from step-specific params
-            step_prompt_file = data.get('prompt_file', '')
-            if step_prompt_file:
-                if not os.path.exists(step_prompt_file):
-                    return jsonify({'error': f'Prompt file not found: {step_prompt_file}'}), 400
-                kwargs['prompt_file'] = step_prompt_file
+            # Get topic_path from step-specific params (optional)
+            step_topic_path = data.get('topic_path', '')
+            if step_topic_path:
+                if not os.path.exists(step_topic_path):
+                    return jsonify({'error': f'Topic file not found: {step_topic_path}'}), 400
+                kwargs['topic_path'] = step_topic_path
+            
+            # Get prompt_path from step-specific params (optional)
+            step_prompt_path = data.get('prompt_path', '')
+            if step_prompt_path:
+                if not os.path.exists(step_prompt_path):
+                    return jsonify({'error': f'Prompt file not found: {step_prompt_path}'}), 400
+                kwargs['prompt_path'] = step_prompt_path
             else:
+                # Prompt file is optional - will look in output_dir if not provided
                 prompt_file_path = os.path.join(output_dir, 'prompt_correct.txt')
                 if os.path.exists(prompt_file_path):
-                    kwargs['prompt_file'] = prompt_file_path
+                    kwargs['prompt_path'] = prompt_file_path
+            
         
         # Execute step
         result = topic_modeling_system.execute_step(

@@ -63,7 +63,6 @@ if __name__ == "__main__":
         print("Possible reasons:")
         print("1. No initial pubs found for the given search method:", args.search_method)
         print("2. No initial pubs found for the given iteration:", args.iteration)
-        print("Please run check_search_stage.py to better understand the current state of your search database")
         sys.exit(1)
     
     print("Initial Pubs: ", len(initial_pubs))

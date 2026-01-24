@@ -98,7 +98,7 @@
                                             {% if workflow_info and workflow_info.current_step %}
                                                 {{ workflow_info.current_step }}
                                             {% else %}
-                                                Step 0: Generate Snowball Start
+                                                No steps performed yet
                                             {% endif %}
                                         </h5>
                                         <small>Current Step</small>
@@ -346,6 +346,8 @@
         let articles = [];
         let currentArticleIndex = 0;
         let currentIteration = null;
+        let initialTotalArticles = 0; // Store initial total count
+        let currentPosition = 0; // Track actual position in original list (1-based)
 
         // Handle filter method change
         document.querySelectorAll('input[name="filterMethod"]').forEach(radio => {
@@ -429,6 +431,7 @@
                     }
 
                     articles = data.articles || [];
+                    initialTotalArticles = articles.length; // Store initial total
                     
                     if (articles.length === 0) {
                         showError('No articles found for this iteration that need title filtering. All articles may have already been processed.');
@@ -437,6 +440,7 @@
                     }
 
                     currentArticleIndex = 0;
+                    currentPosition = 1; // Start at position 1
                     displayArticle();
                     document.getElementById('articleSection').style.display = 'block';
                 })
@@ -454,9 +458,9 @@
 
             const article = articles[currentArticleIndex];
             
-            // Update progress indicator
-            document.getElementById('currentIndex').textContent = currentArticleIndex + 1;
-            document.getElementById('totalArticles').textContent = articles.length;
+            // Update progress indicator (use tracked position, not array index)
+            document.getElementById('currentIndex').textContent = currentPosition;
+            document.getElementById('totalArticles').textContent = initialTotalArticles;
 
             // Display article information
             document.getElementById('articleTitle').textContent = article.title || '(No title)';
@@ -540,17 +544,20 @@
 
                 // Remove article from list (it's been processed)
                 articles.splice(currentArticleIndex, 1);
+                // We've processed the current item, so we've moved forward in the original list
+                // The next item we'll view is at the next position
 
-                // Adjust index if needed
+                // Adjust index if needed (if we were at the end, move back)
                 if (currentArticleIndex >= articles.length && articles.length > 0) {
                     currentArticleIndex = articles.length - 1;
+                    // If we moved back, position stays the same (we're viewing the previous item)
+                } else {
+                    // We're viewing the next item, which is now at the same index but is the next position
+                    currentPosition++;
                 }
 
                 // Move to next article or finish
                 if (articles.length > 0) {
-                    if (currentArticleIndex >= articles.length) {
-                        currentArticleIndex = articles.length - 1;
-                    }
                     displayArticle();
                 } else {
                     // All articles processed
@@ -574,6 +581,7 @@
         function previousArticle() {
             if (currentArticleIndex > 0) {
                 currentArticleIndex--;
+                currentPosition--; // Decrement position when going back
                 displayArticle();
             }
         }
@@ -581,6 +589,7 @@
         function nextArticle() {
             if (currentArticleIndex < articles.length - 1) {
                 currentArticleIndex++;
+                currentPosition++; // Increment position when going forward
                 displayArticle();
             }
         }
