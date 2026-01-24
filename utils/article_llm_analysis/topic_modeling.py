@@ -200,22 +200,50 @@ class TopicModelingLevel1(TopicModelingStep):
     def execute_step(self, pdf_folder: str, output_dir: str, **kwargs) -> Dict[str, Any]:
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True)
-        data_file = output_dir / "data.jsonl"
-        if not data_file.exists():
-            print("Data file not found, preparing data.jsonl...")
-            self.prepare_data(pdf_folder, output_dir, kwargs.get("max_workers", 4))
+        
+        # Get data_file from kwargs, or use default
+        data_file = kwargs.get("data_file", "")
+        if data_file:
+            data_file = str(data_file)
+            if not os.path.exists(data_file):
+                return {"error": f"Data file not found: {data_file}", "success": False}
+        else:
+            # Default: use output_dir/data.jsonl
+            data_file = str(output_dir / "data.jsonl")
+            if not os.path.exists(data_file):
+                print("Data file not found, preparing data.jsonl...")
+                self.prepare_data(pdf_folder, output_dir, kwargs.get("max_workers", 4))
 
         seed_file = kwargs.get("seed_file", "")
         prompt_file = kwargs.get("prompt_file", "")
+        output_file = kwargs.get("output_file", "")
+        generation_file = kwargs.get("generation_file", "")
+        
         if not seed_file or not prompt_file:
             print("Seed file or prompt file not found, preparing...")
             return {}
         
         try:
             print("Generating high-level topics...")
-            data_file = os.path.join(str(output_dir), "data.jsonl")
-            topic_file = os.path.join(str(output_dir), "topics_lvl1.md")
-            out_file = os.path.join(str(output_dir), "generation_lvl1.json")
+            
+            # Use provided output_file if specified, otherwise default to output_dir/topics_lvl1.md
+            if output_file:
+                topic_file = output_file
+            else:
+                topic_file = os.path.join(str(output_dir), "topics_lvl1.md")
+            
+            # Use provided generation_file if specified, otherwise default to output_dir/generation_lvl1.json
+            if generation_file:
+                out_file = generation_file
+            else:
+                out_file = os.path.join(str(output_dir), "generation_lvl1.json")
+            
+            # Ensure the directories for output files exist
+            topic_file_path = Path(topic_file)
+            topic_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            generation_file_path = Path(out_file)
+            generation_file_path.parent.mkdir(parents=True, exist_ok=True)
 
             prompt_file = prompt_file.encode('utf-8', errors='replace').decode('utf-8')
             seed_file = seed_file.encode('utf-8', errors='replace').decode('utf-8')
@@ -255,24 +283,56 @@ class TopicModelingLevel2(TopicModelingStep):
     def execute_step(self, pdf_folder: str, output_dir: str, **kwargs) -> Dict[str, Any]:
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True)
-        data_file = output_dir / "data.jsonl"
-        if not data_file.exists():
-            print("Data file not found, preparing data.jsonl...")
-            self.prepare_data(pdf_folder, output_dir, kwargs.get("max_workers", 4))
+        
+        # Get data_file from kwargs, or use default (generation_lvl1.json)
+        data_file = kwargs.get("data_file", "")
+        if data_file:
+            data_file = str(data_file)
+            if not os.path.exists(data_file):
+                return {"error": f"Data file not found: {data_file}", "success": False}
+        else:
+            # Default: use output_dir/generation_lvl1.json
+            data_file = str(output_dir / "generation_lvl1.json")
+            if not os.path.exists(data_file):
+                # Fallback to data.jsonl if generation_lvl1.json doesn't exist
+                fallback_data_file = str(output_dir / "data.jsonl")
+                if os.path.exists(fallback_data_file):
+                    data_file = fallback_data_file
+                else:
+                    print("Data file not found, preparing data.jsonl...")
+                    self.prepare_data(pdf_folder, output_dir, kwargs.get("max_workers", 4))
+                    data_file = fallback_data_file
 
-        level1_topics_file = kwargs.get("level1_topics_file", "")
         prompt_file = kwargs.get("prompt_file", "")
         seed_file = kwargs.get("seed_file", "")
-        if not seed_file or not prompt_file or not level1_topics_file:
-            print("Seed file or prompt file or level1 topics file not found, preparing...")
+        output_file = kwargs.get("output_file", "")
+        generation_file = kwargs.get("generation_file", "")
+        
+        if not seed_file or not prompt_file:
+            print("Seed file or prompt file not found, preparing...")
             return {}
         try:
             print("Generating low-level topics...")
-            data_file = os.path.join(str(output_dir), "generation_lvl1.json")
-            topic_file = os.path.join(str(output_dir), "topics_lvl2.md")
-            out_file = os.path.join(str(output_dir), "generation_lvl2.json")
             
-            # Generate topics
+            # Use provided output_file if specified, otherwise default to output_dir/topics_lvl2.md
+            if output_file:
+                topic_file = output_file
+            else:
+                topic_file = os.path.join(str(output_dir), "topics_lvl2.md")
+            
+            # Use provided generation_file if specified, otherwise default to output_dir/generation_lvl2.json
+            if generation_file:
+                out_file = generation_file
+            else:
+                out_file = os.path.join(str(output_dir), "generation_lvl2.json")
+            
+            # Ensure the directories for output files exist
+            topic_file_path = Path(topic_file)
+            topic_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            generation_file_path = Path(out_file)
+            generation_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
             # Generate topics
             generate_topic_lvl2(
                 api=self.api,
@@ -315,24 +375,46 @@ class TopicModelingRefine(TopicModelingStep):
 
         topic_file = kwargs.get("topic_file", "")
         prompt_file = kwargs.get("prompt_file", "")
-        if not topic_file or not prompt_file:
-            print("Topic file or prompt file not found, preparing...")
-            return {}
+        generation_file = kwargs.get("generation_file", "")
+        out_file = kwargs.get("out_file", "")
+        updated_file = kwargs.get("updated_file", "")
+        
+        if not topic_file:
+            return {"error": "Topic file is required", "success": False}
+        if not generation_file:
+            return {"error": "Generation file is required", "success": False}
+        if not out_file:
+            return {"error": "Output file is required", "success": False}
+        if not updated_file:
+            return {"error": "Updated file is required", "success": False}
+        
+        if not os.path.exists(topic_file):
+            return {"error": f"Topic file not found: {topic_file}", "success": False}
+        if not os.path.exists(generation_file):
+            return {"error": f"Generation file not found: {generation_file}", "success": False}
+        
         try:
             print("Refining topics...")
 
             if not prompt_file:
-                prompt_file = os.path.join(output_dir, "prompt_refine.txt")
+                prompt_file = os.path.join(str(output_dir), "prompt_refine.txt")
                 if not os.path.exists(prompt_file):
                     return {
-                        "error": f"Prompt file not found: {prompt_file}. Please provide a prompt file for topic refinement."
+                        "error": f"Prompt file not found: {prompt_file}. Please provide a prompt file for topic refinement.",
+                        "success": False
                     }
-            generation_file = os.path.join(output_dir, "generation_lvl1.json")
-            refined_topic_file = os.path.join(output_dir, "refinement.json")
-            out_file = os.path.join(output_dir, "topics_refined.md")
-            mapping_file = os.path.join(output_dir, "mapping.json")
+            
+            # Ensure directories exist for output files
+            out_file_path = Path(out_file)
+            out_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            updated_file_path = Path(updated_file)
+            updated_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Mapping file is still saved in output_dir
+            mapping_file = os.path.join(str(output_dir), "mapping.json")
 
-             # Refine topics
+            # Refine topics
             refine_topics(
                 api=self.api,
                 model=self.topicgpt_model,
@@ -340,7 +422,7 @@ class TopicModelingRefine(TopicModelingStep):
                 generation_file=generation_file,
                 topic_file=topic_file,
                 out_file=out_file,
-                updated_file=refined_topic_file,
+                updated_file=updated_file,
                 temperature=self.temperature,
                 max_tokens=self.max_output_tokens,
                 verbose=True,
@@ -348,15 +430,18 @@ class TopicModelingRefine(TopicModelingStep):
                 mapping_file=mapping_file,
             )
 
-            # Load refined topics
-            with open(refined_topic_file, "r", encoding="utf-8") as f:
-                topic_text = f.read()
-                topics = self.parse_topic_text(topic_text)
+            # Load refined topics from out_file (which contains the refined topics in markdown format)
+            topics = []
+            if os.path.exists(out_file):
+                with open(out_file, "r", encoding="utf-8") as f:
+                    topic_text = f.read()
+                    topics = self.parse_topic_text(topic_text)
 
             print(f"Refined to {len(topics)} topics")
             return {
                 "topics": topics,
-                "topic_file": refined_topic_file,
+                "topic_file": out_file,
+                "updated_file": updated_file,
                 "mapping_file": mapping_file,
                 "success": True,
             }
@@ -370,14 +455,26 @@ class TopicModelingAssign(TopicModelingStep):
     def execute_step(self, pdf_folder: str, output_dir: str, **kwargs) -> Dict[str, Any]:
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True)
-        data_file = output_dir / "data.jsonl"
-        print(f"Data file: {data_file}")
-        if not data_file.exists():
-            print("Data file not found, preparing data.jsonl...")
-            self.prepare_data(pdf_folder, output_dir, kwargs.get("max_workers", 4))
+        
+        # Get data_file from kwargs, or use default
+        data_file = kwargs.get("data_file", "")
+        if data_file:
+            data_file = str(data_file)
+            if not os.path.exists(data_file):
+                return {"error": f"Data file not found: {data_file}", "success": False}
+        else:
+            # Default: use output_dir/data.jsonl
+            data_file = str(output_dir / "data.jsonl")
+            if not os.path.exists(data_file):
+                print("Data file not found, preparing data.jsonl...")
+                self.prepare_data(pdf_folder, output_dir, kwargs.get("max_workers", 4))
         
         prompt_file = kwargs.get("prompt_file", "")
         topic_file = kwargs.get("topic_file", "")
+        output_file = kwargs.get("output_file", "")
+        
+        if not output_file:
+            return {"error": "Output file is required", "success": False}
 
         if not topic_file:
             # Try refined topics first, then level1, then level2
@@ -393,22 +490,24 @@ class TopicModelingAssign(TopicModelingStep):
 
             if not topic_file:
                 return {
-                    "error": "No topics file found. Run 'level1' or 'refine' step first."
+                    "error": "No topics file found. Run 'level1' or 'refine' step first.",
+                    "success": False
                 }
             
         try:
             print("Assigning topics to documents...")
 
             if not prompt_file:
-                prompt_file = os.path.join(output_dir, "prompt_assign.txt")
+                prompt_file = os.path.join(str(output_dir), "prompt_assign.txt")
                 if not os.path.exists(prompt_file):
                     return {
-                        "error": f"Prompt file not found: {prompt_file}. Please provide a prompt file for topic assignment."
+                        "error": f"Prompt file not found: {prompt_file}. Please provide a prompt file for topic assignment.",
+                        "success": False
                     }
 
-            # Set up TopicGPT parameters
-            data_file = os.path.join(output_dir, "data.jsonl")
-            out_file = os.path.join(output_dir, "assignments_new.jsonl")
+            # Ensure directory exists for output file
+            output_file_path = Path(output_file)
+            output_file_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Assign topics
             assign_topics(
@@ -416,7 +515,7 @@ class TopicModelingAssign(TopicModelingStep):
                 model=self.topicgpt_model,
                 data=data_file,
                 prompt_file=prompt_file,
-                out_file=out_file,
+                out_file=output_file,
                 topic_file=topic_file,
                 temperature=self.temperature,
                 max_tokens=self.max_output_tokens,
@@ -425,14 +524,14 @@ class TopicModelingAssign(TopicModelingStep):
 
             # Load assignments
             assignments = []
-            with open(out_file, "r", encoding="utf-8") as f:
+            with open(output_file, "r", encoding="utf-8") as f:
                 for line in f:
                     assignments.append(json.loads(line))
 
             print(f"Assigned topics to {len(assignments)} documents")
             return {
                 "assignments": assignments,
-                "assignment_file": out_file,
+                "assignment_file": output_file,
                 "success": True,
             }
 
@@ -445,13 +544,23 @@ class TopicModelingCorrect(TopicModelingStep):
     def execute_step(self, pdf_folder: str, output_dir: str, **kwargs) -> Dict[str, Any]:
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True)
-        data_file = output_dir / "data.jsonl"
-        if not data_file.exists():
-            print("Data file not found, preparing data.jsonl...")
-            self.prepare_data(pdf_folder, output_dir, kwargs.get("max_workers", 4))
-        topic_file = kwargs.get("topic_file", "")
-        prompt_file = kwargs.get("prompt_file", "")
-        if not topic_file:
+        
+        # Get parameters from kwargs
+        data_path = kwargs.get("data_path", "")
+        prompt_path = kwargs.get("prompt_path", "")
+        topic_path = kwargs.get("topic_path", "")
+        output_path = kwargs.get("output_path", "")
+        
+        if not data_path:
+            return {"error": "Data path is required", "success": False}
+        if not output_path:
+            return {"error": "Output path is required", "success": False}
+        
+        if not os.path.exists(data_path):
+            return {"error": f"Data file not found: {data_path}", "success": False}
+        
+        # Auto-detect topic_path if not provided
+        if not topic_path:
             # Try refined topics first, then level1, then level2
             for file_name in [
                 "topics_refined.md",
@@ -460,51 +569,60 @@ class TopicModelingCorrect(TopicModelingStep):
             ]:
                 candidate_file = output_dir / file_name
                 if candidate_file.exists():
-                    topic_file = str(candidate_file)
+                    topic_path = str(candidate_file)
                     break
 
-            if not topic_file:
+            if not topic_path:
                 return {
-                    "error": "No topics file found. Run 'level1' or 'refine' step first."
+                    "error": "No topics file found. Run 'level1' or 'refine' step first.",
+                    "success": False
                 }
+        
+        if not os.path.exists(topic_path):
+            return {"error": f"Topic file not found: {topic_path}", "success": False}
 
         try:
             print("Correcting topic assignments...")
 
-            if not prompt_file:
-                prompt_file = os.path.join(output_dir, "prompt_correct.txt")
-                if not os.path.exists(prompt_file):
+            # Auto-detect prompt_path if not provided
+            if not prompt_path:
+                prompt_path = os.path.join(str(output_dir), "prompt_correct.txt")
+                if not os.path.exists(prompt_path):
                     return {
-                        "error": f"Prompt file not found: {prompt_file}. Please provide a prompt file for assignment correction."
+                        "error": f"Prompt file not found: {prompt_path}. Please provide a prompt file for assignment correction.",
+                        "success": False
                     }
+            
+            if not os.path.exists(prompt_path):
+                return {"error": f"Prompt file not found: {prompt_path}", "success": False}
 
-            # Set up TopicGPT parameters
-            data_file = os.path.join(output_dir, "assignments_new.jsonl")
-            out_file = os.path.join(output_dir, "corrected_assignments_new.jsonl")
+            # Ensure directory exists for output file
+            output_path_obj = Path(output_path)
+            output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
             # Correct assignments
             correct_topics(
                 api=self.api,
                 model=self.topicgpt_model,
-                data_path=data_file,
-                prompt_path=prompt_file,
-                topic_path=topic_file,
-                output_path=out_file,
+                data_path=data_path,
+                prompt_path=prompt_path,
+                topic_path=topic_path,
+                output_path=output_path,
                 temperature=self.temperature,
                 max_tokens=self.max_output_tokens,
                 verbose=True,
             )
 
             # Load corrected assignments
-            with open(out_file, "r", encoding="utf-8") as f:
-                assignments = []
+            assignments = []
+            with open(output_path, "r", encoding="utf-8") as f:
                 for line in f:
                     assignments.append(json.loads(line))
 
             print(f"Corrected assignments for {len(assignments)} documents")
             return {
                 "assignments": assignments,
-                "assignment_file": out_file,
+                "assignment_file": output_path,
                 "success": True,
             }
 

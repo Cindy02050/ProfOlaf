@@ -150,9 +150,12 @@ def parse_args():
     parser.add_argument('--provider', help='LLM provider to use', default="openai")
     parser.add_argument('--context-length', help='Maximum context length in tokens', default=16385)
     parser.add_argument('--max-workers', help='Maximum number of parallel workers for PDF processing', default=4)
-    parser.add_argument("--seed-file", help='Path to seed file for level1 topic generation')
-    parser.add_argument("--prompt-file", help='Path to prompt file for level1 topic generation')
-    parser.add_argument("--level1-topics-file", help='Path to level1 topics file')
+    parser.add_argument("--seed-file", help='Path to seed file (topics from level1, default: output_dir/topics_lvl1.md)')
+    parser.add_argument("--prompt-file", help='Path to prompt file for level2 topic generation')
+    parser.add_argument("--output-file", help='Path to output file for topics (default: output_dir/topics_lvl2.md)')
+    parser.add_argument("--data-file", help='Path to data file (default: output_dir/generation_lvl1.json or data.jsonl)')
+    parser.add_argument("--generation-file", help='Path to generation output file (default: output_dir/generation_lvl2.json)')
+    parser.add_argument("--level1-topics-file", help='[DEPRECATED] Use --seed-file instead. Path to level1 topics file')
     parser.add_argument("--help-detailed", help='Show detailed help with examples and workflow', action='store_true')
     return parser.parse_args()
 
@@ -170,6 +173,19 @@ def main():
         print(f"Configuration file not found: {args.config}")
         print("Please create a configuration file with your API keys.")
         return
+    # Use level1_topics_file as seed_file if seed_file not provided (backward compatibility)
+    if not args.seed_file and args.level1_topics_file:
+        args.seed_file = args.level1_topics_file
+    
+    if not args.seed_file:
+        # Try default location
+        default_seed = os.path.join(args.output_dir, "topics_lvl1.md")
+        if os.path.exists(default_seed):
+            args.seed_file = default_seed
+        else:
+            print(f"Seed file not found. Please provide --seed-file or ensure {default_seed} exists.")
+            return
+    
     if not os.path.exists(args.seed_file):
         print(f"Seed file not found: {args.seed_file}")
         print("Please create a seed file with your topics.")
@@ -201,13 +217,23 @@ def main():
         )
     )
 
+    kwargs = {
+        'max_workers': int(args.max_workers),
+        'seed_file': args.seed_file,
+    }
+    if args.prompt_file:
+        kwargs['prompt_file'] = args.prompt_file
+    if args.output_file:
+        kwargs['output_file'] = args.output_file
+    if args.data_file:
+        kwargs['data_file'] = args.data_file
+    if args.generation_file:
+        kwargs['generation_file'] = args.generation_file
+    
     result = topic_modeling_system.execute_step(
         args.pdf_folder,
         args.output_dir,
-        max_workers=int(args.max_workers),
-        seed_file=args.seed_file,
-        prompt_file=args.prompt_file,
-        level1_topics_file=args.level1_topics_file,
+        **kwargs
     )
 
     if result.get("success", False):

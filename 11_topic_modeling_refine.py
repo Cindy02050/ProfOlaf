@@ -151,8 +151,11 @@ def parse_args():
     parser.add_argument('--provider', help='LLM provider to use', default="openai")
     parser.add_argument('--context-length', help='Maximum context length in tokens', default=16385)
     parser.add_argument('--max-workers', help='Maximum number of parallel workers for PDF processing', default=4)
-    parser.add_argument("--topic-file", help='Path to topic file')
-    parser.add_argument("--prompt-file", help='Path to prompt file for level1 topic generation')
+    parser.add_argument("--topic-file", help='Path to topic file (required)')
+    parser.add_argument("--prompt-file", help='Path to prompt file for refinement')
+    parser.add_argument("--generation-file", help='Path to generation JSON file (required)')
+    parser.add_argument("--out-file", help='Path to save refined topics file (required, default: output_dir/topics_refined.md)')
+    parser.add_argument("--updated-file", help='Path to save updated generation JSON (required, default: output_dir/refinement.json)')
     parser.add_argument("--no-remove", help='Do not remove topics during refinement', action='store_true')
     parser.add_argument("--help-detailed", help='Show detailed help with examples and workflow', action='store_true')
     return parser.parse_args()
@@ -171,10 +174,25 @@ def main():
         print(f"Configuration file not found: {args.config}")
         print("Please create a configuration file with your API keys.")
         return
+    if not args.topic_file:
+        print("Error: --topic-file is required")
+        return
     if not os.path.exists(args.topic_file):
         print(f"Topic file not found: {args.topic_file}")
-        print("Please create a seed file with your topics.")
         return
+    
+    if not args.generation_file:
+        print("Error: --generation-file is required")
+        return
+    if not os.path.exists(args.generation_file):
+        print(f"Generation file not found: {args.generation_file}")
+        return
+    
+    if not args.out_file:
+        args.out_file = os.path.join(args.output_dir, "topics_refined.md")
+    
+    if not args.updated_file:
+        args.updated_file = os.path.join(args.output_dir, "refinement.json")
     
     config = load_config(args.config)
     try:
@@ -202,13 +220,21 @@ def main():
         )
     )
 
+    kwargs = {
+        'max_workers': int(args.max_workers),
+        'topic_file': args.topic_file,
+        'generation_file': args.generation_file,
+        'out_file': args.out_file,
+        'updated_file': args.updated_file,
+        'remove': not args.no_remove,
+    }
+    if args.prompt_file:
+        kwargs['prompt_file'] = args.prompt_file
+    
     result = topic_modeling_system.execute_step(
         args.pdf_folder,
         args.output_dir,
-        max_workers=int(args.max_workers),
-        topic_file=args.topic_file,
-        prompt_file=args.prompt_file,
-        remove=not args.no_remove,
+        **kwargs
     )
 
     if result.get("success", False):
@@ -216,7 +242,7 @@ def main():
         if "message" in result:
             print(result["message"])
     else:
-        print(f"Step 'level2' failed: {result.get('error', 'Unknown error')}")
+        print(f"Step 'refine' failed: {result.get('error', 'Unknown error')}")
         return
 
 if __name__ == "__main__":

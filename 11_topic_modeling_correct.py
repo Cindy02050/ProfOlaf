@@ -151,8 +151,13 @@ def parse_args():
     parser.add_argument('--provider', help='LLM provider to use', default="openai")
     parser.add_argument('--context-length', help='Maximum context length in tokens', default=16385)
     parser.add_argument('--max-workers', help='Maximum number of parallel workers for PDF processing', default=4)
-    parser.add_argument("--topic-file", help='Path to topic file')
-    parser.add_argument("--prompt-file", help='Path to prompt file for level1 topic generation')
+    parser.add_argument("--data-path", help='Path to input data file (output from assignment stage, required)')
+    parser.add_argument("--prompt-path", help='Path to prompt file (optional, default: output_dir/prompt_correct.txt)')
+    parser.add_argument("--topic-path", help='Path to topic file (optional, auto-detects if not provided)')
+    parser.add_argument("--output-path", help='Path to output file (required, default: output_dir/corrected_assignments.jsonl)')
+    # Legacy support
+    parser.add_argument("--topic-file", help='[DEPRECATED] Use --topic-path instead. Path to topic file')
+    parser.add_argument("--prompt-file", help='[DEPRECATED] Use --prompt-path instead. Path to prompt file')
     parser.add_argument("--help-detailed", help='Show detailed help with examples and workflow', action='store_true')
     return parser.parse_args()
 
@@ -170,10 +175,27 @@ def main():
         print(f"Configuration file not found: {args.config}")
         print("Please create a configuration file with your API keys.")
         return
-    if not os.path.exists(args.topic_file):
-        print(f"Topic file not found: {args.topic_file}")
-        print("Please create a seed file with your topics.")
+    # Backward compatibility: map old parameter names to new ones
+    if args.topic_file and not args.topic_path:
+        args.topic_path = args.topic_file
+    if args.prompt_file and not args.prompt_path:
+        args.prompt_path = args.prompt_file
+    
+    if not args.data_path:
+        # Try default location
+        default_data = os.path.join(args.output_dir, "assignments.jsonl")
+        if os.path.exists(default_data):
+            args.data_path = default_data
+        else:
+            print(f"Error: --data-path is required. Data file not found at default location: {default_data}")
+            return
+    
+    if not os.path.exists(args.data_path):
+        print(f"Data file not found: {args.data_path}")
         return
+    
+    if not args.output_path:
+        args.output_path = os.path.join(args.output_dir, "corrected_assignments.jsonl")
     
     config = load_config(args.config)
     try:
@@ -201,12 +223,20 @@ def main():
         )
     )
 
+    kwargs = {
+        'max_workers': int(args.max_workers),
+        'data_path': args.data_path,
+        'output_path': args.output_path,
+    }
+    if args.topic_path:
+        kwargs['topic_path'] = args.topic_path
+    if args.prompt_path:
+        kwargs['prompt_path'] = args.prompt_path
+    
     result = topic_modeling_system.execute_step(
         args.pdf_folder,
         args.output_dir,
-        max_workers=int(args.max_workers),
-        topic_file=args.topic_file,
-        prompt_file=args.prompt_file,
+        **kwargs
     )
 
     if result.get("success", False):

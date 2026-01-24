@@ -149,10 +149,12 @@ def parse_args():
     parser.add_argument('--output-dir', help='Output directory to save results and intermediate files', default=analysis_conf["output_path"])
     parser.add_argument('--config', help='Configuration file for LLM settings', default="paper_analysis/llm_config.json")
     parser.add_argument('--provider', help='LLM provider to use', default="openai")
-    parser.add_argument('--context-length', help='Maximum context length in tokens', default=16385)
+    parser.add_argument('--context-length', help='Maximum context length in tokens', default=20000)
     parser.add_argument('--max-workers', help='Maximum number of parallel workers for PDF processing', default=4)
-    parser.add_argument("--topic-file", help='Path to topic file')
-    parser.add_argument("--prompt-file", help='Path to prompt file for level1 topic generation')
+    parser.add_argument("--topic-file", help='Path to topic file (optional, auto-detects if not provided)')
+    parser.add_argument("--prompt-file", help='Path to prompt file for assignment', default="utils/prompts/topic_modeling_prompts/assignment.txt")
+    parser.add_argument("--data-file", help='Path to data file (optional, default: output_dir/data.jsonl)')
+    parser.add_argument("--output-file", help='Path to save assignments file (required, default: output_dir/assignments.jsonl)')
     parser.add_argument("--help-detailed", help='Show detailed help with examples and workflow', action='store_true')
     return parser.parse_args()
 
@@ -170,10 +172,12 @@ def main():
         print(f"Configuration file not found: {args.config}")
         print("Please create a configuration file with your API keys.")
         return
-    if not os.path.exists(args.topic_file):
+    if args.topic_file and not os.path.exists(args.topic_file):
         print(f"Topic file not found: {args.topic_file}")
-        print("Please create a seed file with your topics.")
         return
+    
+    if not args.output_file:
+        args.output_file = os.path.join(args.output_dir, "assignments.jsonl")
     
     config = load_config(args.config)
     try:
@@ -201,12 +205,21 @@ def main():
         )
     )
 
+    kwargs = {
+        'max_workers': int(args.max_workers),
+        'output_file': args.output_file,
+    }
+    if args.topic_file:
+        kwargs['topic_file'] = args.topic_file
+    if args.prompt_file:
+        kwargs['prompt_file'] = args.prompt_file
+    if args.data_file:
+        kwargs['data_file'] = args.data_file
+    
     result = topic_modeling_system.execute_step(
         args.pdf_folder,
         args.output_dir,
-        max_workers=int(args.max_workers),
-        topic_file=args.topic_file,
-        prompt_file=args.prompt_file,
+        **kwargs
     )
 
     if result.get("success", False):
