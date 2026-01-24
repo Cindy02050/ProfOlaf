@@ -35,18 +35,71 @@ def get_articles_from_db(db_path: str, iteration: int, stage="title"):
     db_manager = DBManager(db_path)
 
     if stage == "title":
-        selected = SelectionStage.METADATA_APPROVED
+        # Check if metadata filtering step was skipped
+        workflow_state_path = "workflow_state.json"
+        metadata_skipped = False
+        if os.path.exists(workflow_state_path):
+            try:
+                import json
+                with open(workflow_state_path, 'r', encoding='utf-8') as f:
+                    workflow_state = json.load(f)
+                    skipped_steps = workflow_state.get('skipped_steps', [])
+                    metadata_skipped = 'Step 5: Filter by Metadata' in skipped_steps or 'Step 4: Filter by Metadata' in skipped_steps
+            except Exception:
+                pass
+        
+        if metadata_skipped:
+            # Get articles that are NOT_SELECTED or METADATA_APPROVED but not yet title-filtered
+            articles_metadata = db_manager.get_iteration_data(
+                iteration=iteration,
+                selected=SelectionStage.METADATA_APPROVED
+            )
+            articles_not_selected = db_manager.get_iteration_data(
+                iteration=iteration,
+                selected=SelectionStage.NOT_SELECTED
+            )
+            # Combine and deduplicate by ID
+            article_dict = {}
+            for article in articles_metadata:
+                article_dict[article.id] = article
+            for article in articles_not_selected:
+                if article.id not in article_dict:
+                    article_dict[article.id] = article
+            articles = list(article_dict.values())
+        else:
+            # Normal case: get METADATA_APPROVED articles
+            # But also check for NOT_SELECTED if no METADATA_APPROVED found (in case step wasn't run)
+            articles = db_manager.get_iteration_data(
+                iteration=iteration,
+                selected=SelectionStage.METADATA_APPROVED
+            )
+            # If no METADATA_APPROVED articles found, also try NOT_SELECTED
+            # (this handles the case where metadata filtering step wasn't run)
+            if len(articles) == 0:
+                articles = db_manager.get_iteration_data(
+                    iteration=iteration,
+                    selected=SelectionStage.NOT_SELECTED
+                )
+        
+        # Filter out articles that are already title-approved or higher
+        filtered_articles = []
+        for article in articles:
+            selected_int = int(article.selected) if article.selected is not None else 0
+            # Only include if not already title-approved or higher
+            if selected_int < SelectionStage.TITLE_APPROVED.value:
+                filtered_articles.append(article)
+        
+        return filtered_articles
     elif stage == "content":
         selected = SelectionStage.TITLE_APPROVED
+        articles = db_manager.get_iteration_data(
+            iteration=iteration,
+            selected=selected
+        )
+        return articles
     else:
         print("Invalid stage")
         return []
-
-    articles = db_manager.get_iteration_data(
-        iteration=iteration,
-        selected=selected
-    )
-    return articles
 
 def update_screening_result_class(annotations: dict[str, str]):
     return create_model(
