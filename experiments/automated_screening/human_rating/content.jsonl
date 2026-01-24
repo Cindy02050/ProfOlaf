@@ -1,0 +1,125 @@
+{"title": "Repairllama: Efficient representations and fine-tuned adapters for program repair", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11039501/", "iteration": "1"}
+{"title": "Do LLMs consider security? an empirical study on responses to programming questions", "pub_url": "https://link.springer.com/article/10.1007/s10664-025-10658-6", "iteration": "1"}
+{"title": "Repairbench: Leaderboard of frontier models for program repair", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11028173/", "iteration": "1"}
+{"title": "The Sustainability Face of Automated Program Repair Tools", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3744900", "iteration": "1"}
+{"title": "SnipGen: A Mining Repository Framework for Evaluating LLMs for Code", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11025700/", "iteration": "1"}
+{"title": "Improving Examples in Web API Specifications using Iterated-Calls In-Context Learning", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11081452/", "iteration": "1"}
+{"title": "Can test generation and program repair inform automated assessment of programming projects?", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10988955/", "iteration": "2"}
+{"title": "CODEMORPH: Mitigating Data Leakage in Large Language Model Assessment", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11024356/", "iteration": "2"}
+{"title": "Can llms replace manual annotation of software engineering artifacts?", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11025652/", "iteration": "2"}
+{"title": "SecureQwen: Leveraging LLMs for vulnerability detection in python codebases", "pub_url": "https://www.sciencedirect.com/science/article/pii/S0167404824004565", "iteration": "2"}
+{"title": "Ctibench: A benchmark for evaluating llms in cyber threat intelligence", "pub_url": "https://proceedings.neurips.cc/paper_files/paper/2024/hash/5acd3c628aa1819fbf07c39ef73e7285-Abstract-Datasets_and_Benchmarks_Track.html", "iteration": "2"}
+{"title": "Codeultrafeedback: An llm-as-a-judge dataset for aligning large language models to coding preferences", "pub_url": "https://arxiv.org/abs/2403.09032", "iteration": "2"}
+{"title": "Hybrid automated program repair by combining large language models and program analysis", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3715004", "iteration": "2"}
+{"title": "When Fine-Tuning LLMs Meets Data Privacy: An Empirical Study of Federated Learning in LLM-Based Program Repair", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3733599", "iteration": "2"}
+{"title": "Supersonic: Learning to generate source code optimizations in C/C++", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10606318/", "iteration": "2"}
+{"title": "Enhancing automated program repair with solution design", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3691620.3695537", "iteration": "2"}
+{"title": "Comprehensive Fine-Tuning Large Language Models of Code for Automated Program Repair", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10850625/", "iteration": "2"}
+{"title": "Benchmarking and categorizing the performance of neural program repair systems for Java", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3688834", "iteration": "2"}
+{"title": "Template-guided program repair in the era of large language models", "pub_url": "https://zhangj111.github.io/files/ICSE25_NTR.pdf", "iteration": "2"}
+{"title": "FastFixer: an efficient and effective approach for repairing programming assignments", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3691620.3695062", "iteration": "2"}
+{"title": "Harnessing Large Language Models for Curated Code Reviews", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11025570/", "iteration": "2"}
+{"title": "PATCH: Empowering Large Language Model with Programmer-Intent Guidance and Collaborative-Behavior Simulation for Automatic Bug Fixing", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3718739", "iteration": "2"}
+{"title": "SUMLLAMA: Efficient Contrastive Representations and Fine-Tuned Adapters for Bug Report Summarization", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10521511/", "iteration": "2"}
+{"title": "SECURE: Benchmarking Large Language Models for Cybersecurity", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10917682/", "iteration": "2"}
+{"title": "Evaluating the Generalizability of LLMs in Automated Program Repair", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11023968/", "iteration": "2"}
+{"title": "Towards reliable evaluation of neural program repair with natural robustness testing", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3716167", "iteration": "2"}
+{"title": "MORepair: Teaching LLMs to Repair Code via Multi-Objective Fine-Tuning", "pub_url": "https://arxiv.org/abs/2404.12636", "iteration": "2"}
+{"title": "Enhancing the code debugging ability of llms via communicative agent based data refinement", "pub_url": "https://web.eecs.umich.edu/~movaghar/Code-Debugging-LLMs-2024.pdf", "iteration": "2"}
+{"title": "Generating vulnerability security fixes with Code Language Models", "pub_url": "https://www.sciencedirect.com/science/article/pii/S0950584925001259", "iteration": "2"}
+{"title": "Automated Vulnerability Score Prediction through Lightweight Generative AI", "pub_url": "https://www.sciencedirect.com/science/article/pii/S0950705125014455", "iteration": "2"}
+{"title": "A comparative analysis on using GPT and BERT for automated vulnerability scoring", "pub_url": "https://www.sciencedirect.com/science/article/pii/S2667305325000419", "iteration": "2"}
+{"title": "ReAPR: Automatic program repair via retrieval-augmented large language models", "pub_url": "https://link.springer.com/article/10.1007/s11219-025-09728-1", "iteration": "2"}
+{"title": "Efficient program optimization through knowledge-enhanced LoRA fine-tuning of large language models", "pub_url": "https://link.springer.com/article/10.1007/s11227-025-07378-5", "iteration": "2"}
+{"title": "Retrieval Augmented Generation Fine-Tuned LLM Model for Code Recommendations to Mitigate Lock Contention", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3680256.3721324", "iteration": "2"}
+{"title": "Leveraging Generative AI to Enhance Automated Vulnerability Scoring", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10798728/", "iteration": "2"}
+{"title": "A Hybrid Human-AI Model for Enhanced Automated Vulnerability Scoring in Modern Vehicle Sensor Systems", "pub_url": "https://www.mdpi.com/1999-5903/17/8/339", "iteration": "3"}
+{"title": "What is Generative AI good for? Introduction to the special issue on Generative AI in software engineering", "pub_url": "https://www.sciencedirect.com/science/article/pii/S095058492500196X", "iteration": "3"}
+{"title": "Just-in-time detection of silent security patches", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3749370", "iteration": "3"}
+{"title": "Can LLMs Reason About Program Semantics? A Comprehensive Evaluation of LLMs on Formal Specification Inference", "pub_url": "https://arxiv.org/abs/2503.04779", "iteration": "3"}
+{"title": "Leveraging Large Language Models for Scalable and Explainable Cybersecurity Log Analysis", "pub_url": "https://www.mdpi.com/2624-800X/5/3/55", "iteration": "3"}
+{"title": "Why Personalizing Deep Learning-Based Code Completion Tools Matters", "pub_url": "https://arxiv.org/abs/2503.14201", "iteration": "3"}
+{"title": "EnCus: Customizing Search Space for Automated Program Repair", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10989047/", "iteration": "3"}
+{"title": "Towards detecting prompt knowledge gaps for improved llm-guided issue resolution", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11025628/", "iteration": "3"}
+{"title": "Search-based llms for code optimization", "pub_url": "https://arxiv.org/abs/2408.12159", "iteration": "3"}
+{"title": "Mercury: A code efficiency benchmark for code large language models", "pub_url": "https://proceedings.neurips.cc/paper_files/paper/2024/hash/1df1df43b58845650b8dada00fca9772-Abstract-Datasets_and_Benchmarks_Track.html", "iteration": "3"}
+{"title": "Investigating Execution-Aware Language Models for Code Optimization", "pub_url": "https://arxiv.org/abs/2503.08228", "iteration": "3"}
+{"title": "PatchView: Multi-modality detection of security patches", "pub_url": "https://www.sciencedirect.com/science/article/pii/S0167404825000458", "iteration": "3"}
+{"title": "Speed Up Your Code: Progressive Code Acceleration Through Bidirectional Tree Editing", "pub_url": "https://aclanthology.org/2025.acl-long.1387/", "iteration": "3"}
+{"title": "Enhancing Bug Report Summaries Through Knowledge-Specific and Contrastive Learning Pre-Training", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10443461/", "iteration": "3"}
+{"title": "DeepCodeGraph: A Language Model for Compile-Time Resource Optimization Using Masked Graph Autoencoders", "pub_url": "https://link.springer.com/chapter/10.1007/978-3-031-70239-6_32", "iteration": "3"}
+{"title": "Context-aware prompting for LLM-based program repair", "pub_url": "https://link.springer.com/article/10.1007/s10515-025-00512-w", "iteration": "3"}
+{"title": "Hierarchical repository-level code summarization for business applications using local llms", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11028545/", "iteration": "3"}
+{"title": "Selfcodealign: Self-alignment for code generation", "pub_url": "https://proceedings.neurips.cc/paper_files/paper/2024/hash/72da102da91a8042a0b2aa968429a9f9-Abstract-Conference.html", "iteration": "3"}
+{"title": "Combining Large Language Models with Static Analyzers for Code Review Generation", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11025622/", "iteration": "3"}
+{"title": "INDICT: Code generation with internal dialogues of critiques for both security and helpfulness", "pub_url": "https://proceedings.neurips.cc/paper_files/paper/2024/hash/9b812ee4b831c21e14156ced8659197c-Abstract-Conference.html", "iteration": "3"}
+{"title": "On the Effectiveness of LLM-as-a-judge for Code Generation and Summarization", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11071936/", "iteration": "3"}
+{"title": "Cyberpal. ai: Empowering llms with expert-driven cybersecurity instructions", "pub_url": "https://ojs.aaai.org/index.php/AAAI/article/view/34618", "iteration": "3"}
+{"title": "SV-TrustEval-C: Evaluating Structure and Semantic Reasoning in Large Language Models for Source Code Vulnerability Analysis", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11023455/", "iteration": "3"}
+{"title": "The Digital Cybersecurity Expert: How Far Have We Come?", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11023378/", "iteration": "3"}
+{"title": "A data-driven risk assessment of cybersecurity challenges posed by generative AI", "pub_url": "https://www.sciencedirect.com/science/article/pii/S2772662225000360", "iteration": "3"}
+{"title": "Leveraging Open-Source LLMs for Zero-Shot Vulnerability Detection: A Comparative Analysis", "pub_url": "https://link.springer.com/chapter/10.1007/978-3-031-87775-9_2", "iteration": "3"}
+{"title": "Evaluating Large Language Model Application Impacts on Evasive Spectre Attack Detection.", "pub_url": "https://search.ebscohost.com/login.aspx?direct=true&profile=ehost&scope=site&authtype=crawler&jrnl=20799292&AN=184447193&h=Wv8Pveipc6LkGKE54E%2FniLXJk425uFWLTdy3yObLwTJ6hN98l4YzYPXydKxymJnG0jwvKPthGPwm3mdJLeJ0LA%3D%3D&crl=c", "iteration": "3"}
+{"title": "Ecosystem of large language models for code", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3731753", "iteration": "3"}
+{"title": "How Scientists Use Large Language Models to Program", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3706598.3713668", "iteration": "3"}
+{"title": "Get on the Train or be Left on the Station: Using LLMs for Software Engineering Research", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3696630.3731666", "iteration": "3"}
+{"title": "LLM-Based Labelling of Recorded Automated GUI-Based Test Cases", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10988984/", "iteration": "3"}
+{"title": "Bridging HCI and AI Research for the Evaluation of Conversational SE Assistants", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11050035/", "iteration": "3"}
+{"title": "Insights into resource utilization of code small language models serving with runtime engines and execution providers", "pub_url": "https://www.sciencedirect.com/science/article/pii/S0164121225002432", "iteration": "4"}
+{"title": "Enhancing Large Language Models for Specialized Domains: A Two-Stage Framework with Parameter-Sensitive LoRA Fine-Tuning and Chain-of-Thought RAG", "pub_url": "https://www.mdpi.com/2079-9292/14/10/1961", "iteration": "4"}
+{"title": "Epicoder: Encompassing diversity and complexity in code generation", "pub_url": "https://arxiv.org/abs/2501.04694", "iteration": "4"}
+{"title": "CodeContrast: A Contrastive Learning Approach for Generating Coherent Programming Exercises", "pub_url": "https://www.mdpi.com/2227-7102/15/1/80", "iteration": "4"}
+{"title": "SWIFTCODER: Enhancing Code Generation in Large Language Models through Efficiency-Aware Fine-tuning", "pub_url": "https://arxiv.org/abs/2410.10209", "iteration": "4"}
+{"title": "ProSec: Fortifying Code LLMs with Proactive Security Alignment", "pub_url": "https://arxiv.org/abs/2411.12882", "iteration": "4"}
+{"title": "Revisiting Chain-of-Thought in Code Generation: Do Language Models Need to Learn Reasoning before Coding?", "pub_url": "https://openreview.net/forum?id=wSZeQoJ1Vk", "iteration": "4"}
+{"title": "Benchmarking Long-Context Language Models on Long Code Understanding", "pub_url": "https://aclanthology.org/2025.acl-long.1324/", "iteration": "4"}
+{"title": "AnnCoder: A Mti-Agent-Based Code Generation and Optimization Model", "pub_url": "https://www.mdpi.com/2073-8994/17/7/1087", "iteration": "4"}
+{"title": "Opencoder: The open cookbook for top-tier code large language models", "pub_url": "https://arxiv.org/abs/2411.04905", "iteration": "4"}
+{"title": "Ai-powered, but power-hungry? energy efficiency of llm-generated code", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11052793/", "iteration": "4"}
+{"title": "Measuring and Improving the Efficiency of Python Code Generated by LLMs Using CoT Prompting and Fine-Tuning", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11069268/", "iteration": "4"}
+{"title": "When Faster Isn't Greener: The Hidden Costs of LLM-Based Code Optimization", "pub_url": "https://hal.science/hal-05227453/", "iteration": "4"}
+{"title": "ECCO: Can We Improve Model-Generated Code Efficiency Without Sacrificing Functional Correctness?", "pub_url": "https://arxiv.org/abs/2407.14044", "iteration": "4"}
+{"title": "LogUpdater: Automated Detection and Repair of Specific Defects in Logging Statements", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3731754", "iteration": "4"}
+{"title": "Optimizing code runtime performance through context-aware retrieval-augmented generation", "pub_url": "https://arxiv.org/abs/2501.16692", "iteration": "4"}
+{"title": "RAG or Fine-tuning? A Comparative Study on LCMs-based Code Completion in Industry", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3696630.3728535", "iteration": "4"}
+{"title": "LLM program optimization via retrieval augmented search", "pub_url": "https://arxiv.org/abs/2501.18916", "iteration": "4"}
+{"title": "LLM-Augmented Ticket Aggregation for Low-cost Mobile OS Defect Resolution", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3696630.3728547", "iteration": "4"}
+{"title": "DeCOS: Data-Efficient Reinforcement Learning for Compiler Optimization Selection Ignited by LLM", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3721145.3725765", "iteration": "4"}
+{"title": "Enhancing Large Language Models for Specialized Domains: A Two-Stage Framework with Parameter-Sensitive LoRA Fine-Tuning and Chain-of-Thought \u2026", "pub_url": "https://www.mdpi.com/2079-9292/14/10/1961", "iteration": "4"}
+{"title": "Fea-bench: A benchmark for evaluating repository-level code generation for feature implementation", "pub_url": "https://arxiv.org/abs/2503.06680", "iteration": "5"}
+{"title": "Post-Incorporating Code Structural Knowledge into Pretrained Models via ICL for Code Translation", "pub_url": "https://ieeexplore.ieee.org/abstract/document/11150549/", "iteration": "5"}
+{"title": "Acecoder: Acing coder rl via automated test-case synthesis", "pub_url": "https://arxiv.org/abs/2502.01718", "iteration": "5"}
+{"title": "Codei/o: Condensing reasoning patterns via code input-output prediction", "pub_url": "https://arxiv.org/abs/2502.07316", "iteration": "5"}
+{"title": "Kodcode: A diverse, challenging, and verifiable synthetic dataset for coding", "pub_url": "https://arxiv.org/abs/2503.02951", "iteration": "5"}
+{"title": "M2rc-eval: Massively multilingual repository-level code completion evaluation", "pub_url": "https://arxiv.org/abs/2410.21157", "iteration": "5"}
+{"title": "An empirical study on capability of large language models in understanding code semantics", "pub_url": "https://www.sciencedirect.com/science/article/pii/S0950584925001193", "iteration": "5"}
+{"title": "Bitsai-cr: Automated code review via llm in practice", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3696630.3728552", "iteration": "5"}
+{"title": "DependEval: Benchmarking LLMs for Repository Dependency Understanding", "pub_url": "https://arxiv.org/abs/2503.06689", "iteration": "5"}
+{"title": "Question Selection for Multi-Modal Code Search Synthesis using Probabilistic Version Spaces", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10979773/", "iteration": "5"}
+{"title": "HumanEval Pro and MBPP Pro: Evaluating Large Language Models on Self-invoking Code Generation Task", "pub_url": "https://aclanthology.org/2025.findings-acl.686/", "iteration": "5"}
+{"title": "On Pretraining For Project-Level Code Completion", "pub_url": "https://openreview.net/forum?id=t9RN9WX4Ic", "iteration": "5"}
+{"title": "Synthesizing Software Engineering Data in a Test-Driven Manner", "pub_url": "https://openreview.net/forum?id=P9DQ2IExgS", "iteration": "5"}
+{"title": "UCP: a unified framework for code generation with pseudocode-based multi-task learning and reinforcement alignment: Y. Wen et al.", "pub_url": "https://link.springer.com/article/10.1007/s11227-025-07487-1", "iteration": "5"}
+{"title": "Swe-bench multimodal: Do ai systems generalize to visual software domains?", "pub_url": "https://arxiv.org/abs/2410.03859", "iteration": "5"}
+{"title": "Kernelbench: Can llms write efficient gpu kernels?", "pub_url": "https://arxiv.org/abs/2502.10517", "iteration": "5"}
+{"title": "ObscuraCoder: Powering Efficient Code LM Pre-Training Via Obfuscation Grounding", "pub_url": "https://arxiv.org/abs/2504.00019", "iteration": "5"}
+{"title": "EDITLORD: Learning Code Transformation Rules for Code Editing", "pub_url": "https://arxiv.org/abs/2504.15284", "iteration": "5"}
+{"title": "Enhancing code llm training with programmer attention", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3696630.3728510", "iteration": "5"}
+{"title": "Leveraging Human Insights for Enhanced LLM-based Code Repair", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3696630.3731672", "iteration": "5"}
+{"title": "Learning Game-Playing Agents with Generative Code Optimization", "pub_url": "https://arxiv.org/abs/2508.19506", "iteration": "5"}
+{"title": "Investigating Reproducibility Challenges in LLM Bugfixing on the HumanEvalFix Benchmark", "pub_url": "https://www.mdpi.com/2674-113X/4/3/17", "iteration": "6"}
+{"title": "Correctness Assessment of Code Generated by Large Language Models Using Internal Representations", "pub_url": "https://arxiv.org/abs/2501.12934", "iteration": "6"}
+{"title": "RECoRD: A Multi-Agent LLM Framework for Reverse Engineering Codebase to Relational Diagram", "pub_url": "https://openreview.net/forum?id=TW0p8AwbAB", "iteration": "6"}
+{"title": "Di-bench: Benchmarking large language models on dependency inference with testable repositories at scale", "pub_url": "https://arxiv.org/abs/2501.13699", "iteration": "6"}
+{"title": "Syncmind: Measuring agent out-of-sync recovery in collaborative software engineering", "pub_url": "https://arxiv.org/abs/2502.06994", "iteration": "6"}
+{"title": "SWE-Dev: Building Software Engineering Agents with Training and Inference Scaling", "pub_url": "https://arxiv.org/abs/2506.07636", "iteration": "6"}
+{"title": "Coding Agents with Multimodal Browsing are Generalist Problem Solvers", "pub_url": "https://arxiv.org/abs/2506.03011", "iteration": "6"}
+{"title": "CodeV: Issue Resolving with Visual Data", "pub_url": "https://arxiv.org/abs/2412.17315", "iteration": "6"}
+{"title": "ELABORATION: A Comprehensive Benchmark on Human-LLM Competitive Programming", "pub_url": "https://arxiv.org/abs/2505.16667", "iteration": "6"}
+{"title": "LLM-KG-Bench 3.0: A compass for semantic technology capabilities in the ocean of LLMs", "pub_url": "https://arxiv.org/pdf/2505.13098", "iteration": "1"}
+{"title": "A Dual-Approach Framework for Enhancing Network Traffic Analysis (DAFENTA): Leveraging NumeroLogic LLM Embeddings and Transformer Models for Intrusion Detection", "pub_url": "https://ieeexplore.ieee.org/abstract/document/10825828", "iteration": "1"}
+{"title": "Brite: Bootstrapping reinforced thinking process to enhance language model reasoning", "pub_url": "https://arxiv.org/pdf/2501.18858", "iteration": "1"}
+{"title": "Autopresent: Designing structured visuals from scratch", "pub_url":"https://openaccess.thecvf.com/content/CVPR2025/html/Ge_AutoPresent_Designing_Structured_Visuals_from_Scratch_CVPR_2025_paper.html", "iteration": "1"}     
+{"title": "Threat Intelligence Extraction Framework (TIEF) for TTP Extraction", "pub_url": "https://www.mdpi.com/2624-800X/5/3/63", "iteration": "1"}
+{"title": "Unlimited Practice Opportunities: Automated Generation of Comprehensive, Personalized Programming Tasks", "pub_url": "https://dl.acm.org/doi/abs/10.1145/3724363.3729089", "iteration": "1"}
+{"title": "Neural Semantic Evaluation of Blockchain Policy Tools in China", "pub_url": "https://www.sciencedirect.com/science/article/pii/S1568494625010105", "iteration": "1"}
