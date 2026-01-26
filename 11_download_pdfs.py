@@ -5,7 +5,7 @@ import time
 import pathlib
 import sys
 
-from utils.article_processing.download_pdfs import import download_pdf, is_valid_pdf
+from utils.article_processing.download_pdfs import download_pdf, is_valid_pdf
 
 
 def main():

@@ -11,6 +11,7 @@ WORKDIR /app
 
 # Clone the repository (this will happen at build time)
 RUN git clone https://github.com/sr-lab/ProfOlaf.git .
+RUN git pull origin main
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
