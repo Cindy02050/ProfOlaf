@@ -5,10 +5,10 @@ from prompt_toolkit.layout import Layout, HSplit
 from prompt_toolkit.widgets import TextArea, Button, Label
 from prompt_toolkit.key_binding import KeyBindings
 from utils.db_management import DBManager, SelectionStage
-from utils.pretty_print_utils import pretty_print, format_color_string, prompt_input
+from utils.cli.pretty_print_utils import pretty_print, format_color_string, prompt_input
 from utils.pipeline.screening import choose_elements
 
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 
@@ -20,7 +20,7 @@ with open("search_conf.json", "r") as f:
 @click.option('--model', type=str, default='gpt-4o', help='Model to use for screening')
 @click.option('--api-key', type=str, default=None, help='API key for screening')
 @click.option('--article_folder', type=str, default=None, help='Folder to store the articles')
-def main(iteration, db_path):
+def main(iteration, db_path, rater, llm, model, api_key, article_folder):
     """Filter articles by content (abstract and introduction) with interactive CLI."""
     if db_path is None:
         db_path = search_conf["db_path"]

@@ -8,7 +8,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from ..cli.pretty_print_utils import pretty_print, format_color_string, prompt_input
 from ..venue_rank_search.scimago_search import find_scimago_rank
 from ..venue_rank_search.core_table_search import search_core_table, load_core_table
-from ..db_management import ArticleData
+from ..db_management import ArticleData, DBManager
 
 
 def _get_scimago_rank(venue_name: str, as_string: bool = False):
@@ -31,8 +31,8 @@ def _get_scimago_rank(venue_name: str, as_string: bool = False):
 
 
 def _get_core_rank(venue: str, as_string: bool = False):
-    core_rank_acronym = search_core_table(venue, load_core_table("ranking_tables/core_table2.csv"), acronym_search=True, top_k=1)        
-    core_rank = core_rank_acronym if core_rank_acronym else search_core_table(venue, load_core_table("ranking_tables/core_table2.csv"), top_k=1)
+    core_rank_acronym = search_core_table(venue, load_core_table("utils/ranking_tables/core_table2.csv"), acronym_search=True, top_k=1)        
+    core_rank = core_rank_acronym if core_rank_acronym else search_core_table(venue, load_core_table("utils/ranking_tables/core_table2.csv"), top_k=1)
     best = None if core_rank == [] else core_rank[0]
     if best is None:
         return ""
@@ -44,7 +44,7 @@ def _get_core_rank(venue: str, as_string: bool = False):
     else:
         return best, best.rank
 
-def search_rank_databases(venue: str):
+def search_rank_databases(venue: str, search_conf: dict):
     while True:
         venue_string = format_color_string(venue, "magenta", "bold")
         venue_name = prompt_input(f"Enter the name of the venue (leave it blank to use {venue_string})")
@@ -67,13 +67,10 @@ def search_rank_databases(venue: str):
 
         while True:
             final_rank = prompt_input("Enter the rank for the venue (leave it blank to try other search) ")
-            if final_rank and final_rank in search_conf["venue_rank_list"] or final_rank and final_rank == "NA":
+            if final_rank:
                 break
             elif not final_rank:
-                return search_rank_databases(venue)
-            else:
-                print("Invalid rank.")
-                continue
+                return search_rank_databases(venue, search_conf)
         if final_rank:
             return final_rank
         else:
@@ -85,7 +82,6 @@ def get_venues(articles: List[ArticleData]):
     Get the venues from the articles.
     """
     venues = set()
-    print("get venues Articles: ", articles)
     for article in articles:
         if article.bibtex != "" and article.bibtex != "NO_BIBTEX":
             library = bibtexparser.loads(article.bibtex)
@@ -98,10 +94,9 @@ def get_venues(articles: List[ArticleData]):
                 venues.add(library.entries[0]["booktitle"])
             elif "journal" in library.entries[0]:
                 venues.add(library.entries[0]["journal"])
-    print("get venues Venues: ", venues)
     return venues
 
-def find_similar_venues(venue: str, existing_venues: Set[str], threshold: float = 0.5, top_k: int = 5) -> List[str]:
+def find_similar_venues(venue: str, existing_venues: Set[str], conf_rank: Dict[str, str], threshold: float = 0.5, top_k: int = 5) -> List[str]:
     """
     Find the similar venues.
     """
@@ -118,7 +113,7 @@ def find_similar_venues(venue: str, existing_venues: Set[str], threshold: float 
     for i, sim in enumerate(cosine_similarities):
         if sim > threshold:
             sim = round(sim, 2)
-            similar_venues.append((list(existing_venues)[i], sim, conf_rank[list(existing_venues)[i]]))
+            similar_venues.append((list(existing_venues)[i], sim, conf_rank.get(list(existing_venues)[i], "NA")))
     similar_venues.sort(key=lambda x: x[1], reverse=True)
   
     return similar_venues[:top_k]
@@ -142,7 +137,7 @@ def prompt_similar_venues(venue: str, similar_venues: List[Tuple[str, float]], c
     else:
         return rank
     
-def get_unindexed_venues(venues: Set[str], conf_rank: Dict[str, str]):
+def get_unindexed_venues(venues: Set[str], conf_rank: Dict[str, str], db_manager: DBManager, search_conf: dict):
     """
     Get the unindexed venues.
     """
@@ -161,14 +156,14 @@ def get_unindexed_venues(venues: Set[str], conf_rank: Dict[str, str]):
     for i, venue in enumerate(unindexed_venues):
         venue_string = format_color_string(venue, "magenta", "bold")
         pretty_print(f"({i + 1}/{len(unindexed_venues)}): {venue_string}")
-        similar_venues = find_similar_venues(venue, conf_rank.keys())
+        similar_venues = find_similar_venues(venue, conf_rank.keys(), conf_rank)
         if similar_venues:
             rank = prompt_similar_venues(venue, similar_venues, conf_rank)
-            rank = search_rank_databases(venue) if rank is None else rank
+            rank = search_rank_databases(venue, search_conf) if rank is None else rank
             if rank is None:
                 rank = prompt_input("Enter the rank for the venue: ")
         else:
-            rank = search_rank_databases(venue)
+            rank = search_rank_databases(venue, search_conf)
             if rank is None:
                 rank = prompt_input("Enter the rank for the venue: ")
 

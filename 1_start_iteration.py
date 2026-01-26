@@ -14,7 +14,7 @@ from utils.db_management import (
     DBManager, 
     SelectionStage
 )
-from utils.article_search_method import (
+from utils.article_search.article_search_method import (
     ArticleSearch, 
     SearchMethod,
 )
@@ -23,7 +23,7 @@ from utils.pipeline.start_iteration_utils import get_articles, repair_references
 
 
 load_dotenv()
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 def parse_args():

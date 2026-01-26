@@ -27,15 +27,17 @@ from utils.db_management import (
     initialize_db, 
     SelectionStage
 )
-from utils.generate_snowball_start_utils import (
+from utils.pipeline.generate_snowball_start_utils import (
     generate_snowball_start,
     extract_titles_from_file
 )  
 
+from utils.article_search.article_search_method import SearchMethod
+
 ITERATION_0 = 0 
 
 load_dotenv()
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 pg = get_proxy(search_conf["proxy_key"])
@@ -65,7 +67,7 @@ def main():
         print(f"Error: Invalid search method '{args.search_method}'. Available options: {[method.value for method in SearchMethod]}")
         return
 
-    db_manager = initialize_db(args.db_path)
+    db_manager = initialize_db(args.db_path, search_conf)
     initial_pubs, seen_titles = generate_snowball_start(args.input_file, ITERATION_0, args.delay, search_method)
     db_manager.insert_iteration_data(initial_pubs)
     db_manager.insert_seen_titles_data(seen_titles)

@@ -8,7 +8,7 @@ from utils.db_management import DBManager, SelectionStage
 from utils.pipeline.remove_duplicates import remove_duplicates
 
 
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 

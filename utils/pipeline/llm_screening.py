@@ -36,7 +36,7 @@ def get_articles_from_db(db_path: str, iteration: int, stage="title"):
 
     if stage == "title":
         # Check if metadata filtering step was skipped
-        workflow_state_path = "workflow_state.json"
+        workflow_state_path = "confs/workflow_state.json"
         metadata_skipped = False
         if os.path.exists(workflow_state_path):
             try:
@@ -180,6 +180,7 @@ def screen_papers(
         result["id"] = article.id
         result["rater"] = rater_id
         result["iteration"] = article.iteration
+        result["title"] = article.title
         result[keep_key] = result.pop("keep")
         result[reason_key] = result.pop("reason")
         results.append(result)
@@ -193,6 +194,7 @@ def screen_papers(
             keep=result[keep_key],
             reason=result[reason_key],
             screening_phase=stage,
+            title=result["title"],
             **{
                 annotation: result[annotation] 
                 for annotation in annotations.keys()

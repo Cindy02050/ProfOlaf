@@ -7,6 +7,7 @@ import os
 import json
 import threading
 import shutil
+import sqlite3
 from flask import Flask, render_template, request, jsonify, flash, redirect, url_for, send_file
 from pathlib import Path
 from collections import defaultdict
@@ -66,10 +67,16 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # Configuration file path
-SEARCH_CONF_PATH = "search_conf.json"
-WORKFLOW_STATE_PATH = "workflow_state.json"
-ANALYSIS_CONF_PATH = "analysis_conf.json"
+CONFS_DIR = "confs"
+DATABASES_DIR = "databases"
+SEARCH_CONF_PATH = os.path.join(CONFS_DIR, "search_conf.json")
+WORKFLOW_STATE_PATH = os.path.join(CONFS_DIR, "workflow_state.json")
+ANALYSIS_CONF_PATH = os.path.join(CONFS_DIR, "analysis_conf.json")
 LLM_CONFIG_PATH = os.path.join("utils", "article_llm_analysis", "llm_config.json")
+
+# Ensure directories exist
+os.makedirs(CONFS_DIR, exist_ok=True)
+os.makedirs(DATABASES_DIR, exist_ok=True)
 
 
 def load_workflow_state():
@@ -98,6 +105,8 @@ def load_workflow_state():
 def save_workflow_state(state):
     """Save workflow state to JSON file"""
     try:
+        # Ensure confs directory exists
+        os.makedirs(CONFS_DIR, exist_ok=True)
         with open(WORKFLOW_STATE_PATH, 'w', encoding='utf-8') as f:
             json.dump(state, f, indent=2, ensure_ascii=False)
         return True
@@ -112,7 +121,7 @@ def get_db_manager_for_workflow():
     if search_conf and 'db_path' in search_conf:
         db_path = search_conf['db_path']
     else:
-        db_path = 'database.db'
+        db_path = os.path.join(DATABASES_DIR, 'database.db')
     
     if not os.path.exists(db_path):
         return None
@@ -211,13 +220,24 @@ def generate_search_conf(data):
         except Exception as e:
             raise ValueError(f"Failed to read proxy key file: {str(e)}")
     
+    # Normalize database path - if it's just a filename, put it in databases/ folder
+    db_path = data.get('db_path', '').strip()
+    if not db_path:
+        db_path = os.path.join(DATABASES_DIR, 'database.db')
+    else:
+        # If it's just a filename (no directory separator), prepend databases/
+        if os.path.sep not in db_path and '/' not in db_path and '\\' not in db_path:
+            # It's just a filename, prepend databases/
+            db_path = os.path.join(DATABASES_DIR, db_path)
+        # If it's already an absolute path or has a directory, leave it as-is
+    
     config = {
         "start_year": int(data.get('start_year', 2020)),
         "end_year": int(data.get('end_year', 2024)),
         "venue_rank_list": venue_list,
         "proxy_key": proxy_key,
-        "initial_file": data.get('initial_file', 'seed.txt'),
-        "db_path": data.get('db_path', 'database.db'),
+        "initial_file": data.get('initial_file', 'confs/seed.txt'),
+        "db_path": db_path,
         "csv_path": data.get('csv_path', 'results.csv'),
         "search_method": data.get('search_method', 'google_scholar'),
         "annotations": annotations,
@@ -293,6 +313,8 @@ def update_current_iteration(iteration):
         iteration_int = int(iteration)
         search_conf['current_iteration'] = iteration_int
         
+        # Ensure confs directory exists
+        os.makedirs(CONFS_DIR, exist_ok=True)
         with open(SEARCH_CONF_PATH, 'w') as f:
             json.dump(search_conf, f, indent=4)
         return True
@@ -311,7 +333,7 @@ def get_workflow_info():
     if search_conf and 'db_path' in search_conf:
         db_path = search_conf['db_path']
     else:
-        db_path = 'database.db'
+        db_path = os.path.join(DATABASES_DIR, 'database.db')
     
     db_exists = os.path.exists(db_path)
     
@@ -375,15 +397,24 @@ def get_workflow_info():
             except:
                 pass
         
-        # For iteration 0, always use "Step 0" regardless of max_selected or saved step
+        # For iteration 0, use "Step 0" only if we don't have a stored step that's later
         # (iteration 0 articles are auto-approved but didn't go through the steps)
+        # IMPORTANT: Only override if we're actually on iteration 0 AND we don't have a stored step
+        # If we have a stored step that's later (e.g., "Step 1: Start Iteration"), respect it
         if current_iteration == 0:
-            current_step = "Step 0: Generate Snowball Start"
-            # Save this to database to ensure it's persisted
-            try:
-                db_manager.update_last_step(current_step)
-            except:
-                pass
+            # Only override to Step 0 if we don't have a stored step, or if the stored step is Step 0
+            # This ensures that if step 1 has been executed (which updates current_iteration to >= 1),
+            # we won't be in this branch, and the stored step will be used
+            if current_step is None or current_step == "Step 0: Generate Snowball Start":
+                current_step = "Step 0: Generate Snowball Start"
+                # Save this to database to ensure it's persisted
+                try:
+                    db_manager.update_last_step(current_step)
+                except:
+                    pass
+            # If we have a stored step that's later than Step 0 (e.g., Step 1), keep it
+            # This handles edge cases where step 1 might have been executed but current_iteration
+            # hasn't been updated yet (shouldn't happen, but defensive programming)
         # If still no current step, set default
         elif current_step is None:
             current_step = "Step 0: Generate Snowball Start"
@@ -521,8 +552,41 @@ def index():
 def generate_search_conf_route():
     """Generate search configuration"""
     if request.method == 'GET':
+        # Load existing configuration if it exists
+        existing_config = load_search_conf()
+        
+        # Load existing seed.txt if it exists
+        seed_content = ""
+        seed_file_path = os.path.join(CONFS_DIR, "seed.txt")
+        if os.path.exists(seed_file_path):
+            try:
+                with open(seed_file_path, 'r', encoding='utf-8') as f:
+                    seed_content = f.read()
+            except Exception:
+                pass
+        
+        # Prepare default values from existing config or use defaults
+        initial_file = existing_config.get('initial_file', 'confs/seed.txt') if existing_config else 'confs/seed.txt'
+        # Normalize old format to new format
+        if initial_file == 'seed.txt':
+            initial_file = 'confs/seed.txt'
+        
+        defaults = {
+            'start_year': existing_config.get('start_year', 2020) if existing_config else 2020,
+            'end_year': existing_config.get('end_year', 2024) if existing_config else 2024,
+            'venue_rank_list': ', '.join(existing_config.get('venue_rank_list', ['A*', 'A', 'B', 'C', 'Q1', 'Q2'])) if existing_config else 'A*, A, B, C, Q1, Q2',
+            'search_method': existing_config.get('search_method', 'google_scholar') if existing_config else 'google_scholar',
+            'proxy_key': existing_config.get('proxy_key', '') if existing_config else '',
+            'initial_file': initial_file,
+            'db_path': existing_config.get('db_path', os.path.join(DATABASES_DIR, 'database.db')) if existing_config else os.path.join(DATABASES_DIR, 'database.db'),
+            'csv_path': existing_config.get('csv_path', 'results.csv') if existing_config else 'results.csv',
+            'rater': existing_config.get('rater', 'default') if existing_config else 'default',
+            'annotations': '\n'.join(existing_config.get('annotations', [])) if existing_config else '',
+            'seed_content': seed_content
+        }
+        
         # Show the form
-        return render_template('generate_search_conf.html')
+        return render_template('generate_search_conf.html', **defaults)
     
     # Handle POST request
     try:
@@ -557,7 +621,22 @@ def generate_search_conf_route():
         # Generate configuration
         config = generate_search_conf(form_data)
         
-        # Save to file
+        # Ensure confs directory exists
+        os.makedirs(CONFS_DIR, exist_ok=True)
+        
+        # Save seed.txt content if provided
+        seed_content = form_data.get('seed_content', '').strip()
+        if seed_content:
+            seed_file_path = os.path.join(CONFS_DIR, "seed.txt")
+            with open(seed_file_path, 'w', encoding='utf-8') as f:
+                f.write(seed_content)
+        
+        # Update initial_file to use confs/seed.txt if it's the default
+        initial_file = config.get('initial_file', 'confs/seed.txt')
+        if initial_file == 'seed.txt' or initial_file == 'confs/seed.txt':
+            config['initial_file'] = 'confs/seed.txt'
+        
+        # Save configuration
         with open(SEARCH_CONF_PATH, 'w') as f:
             json.dump(config, f, indent=4)
         
@@ -629,7 +708,7 @@ def load_database():
                 'end_year': 2024,
                 'venue_rank_list': ['A*', 'A', 'B', 'C', 'Q1', 'Q2'],
                 'proxy_key': '',
-                'initial_file': 'seed.txt',
+                'initial_file': 'confs/seed.txt',
                 'db_path': db_path,
                 'csv_path': 'results.csv',
                 'search_method': 'google_scholar',
@@ -641,6 +720,8 @@ def load_database():
             search_conf['db_path'] = db_path
         
         # Save updated search_conf
+        # Ensure confs directory exists
+        os.makedirs(CONFS_DIR, exist_ok=True)
         with open(SEARCH_CONF_PATH, 'w') as f:
             json.dump(search_conf, f, indent=4)
         
@@ -826,7 +907,7 @@ def workflow_stage():
     if search_conf and 'db_path' in search_conf:
         db_path = search_conf['db_path']
     else:
-        db_path = 'database.db'
+        db_path = os.path.join(DATABASES_DIR, 'database.db')
     
     db_exists = os.path.exists(db_path)
     workflow_info = get_workflow_info()
@@ -940,6 +1021,10 @@ def execute_generate_snowball_start():
                     task_state['total'] = total
                 
                 log("Initializing database...")
+                # Ensure database directory exists
+                db_dir = os.path.dirname(db_path)
+                if db_dir and not os.path.exists(db_dir):
+                    os.makedirs(db_dir, exist_ok=True)
                 db_manager = initialize_db(db_path, search_conf)
                 
                 log(f"Starting snowball start generation...")
@@ -3287,7 +3372,7 @@ def skip_workflow_step():
         
         # Get database path from config
         search_conf = load_search_conf()
-        db_path = search_conf.get('db_path', 'database.db') if search_conf else 'database.db'
+        db_path = search_conf.get('db_path', os.path.join(DATABASES_DIR, 'database.db')) if search_conf else os.path.join(DATABASES_DIR, 'database.db')
         
         # For filter steps, automatically approve all articles in the appropriate stage
         db_manager = DBManager(db_path)
@@ -3296,11 +3381,25 @@ def skip_workflow_step():
         
         if step_name == 'Step 5: Filter by Metadata':
             # Skip metadata filter: approve ALL articles in this iteration (set to METADATA_APPROVED)
-            # When skipping Step 4, we bypass all metadata filtering, so all articles are approved
+            # When skipping this step, we bypass all metadata filtering, so ALL articles are approved
+            # This includes articles that were already processed, filtered out, or not yet processed
             articles = db_manager.get_iteration_data(iteration=current_iteration)
+            print(f"DEBUG: Found {len(articles)} articles in iteration {current_iteration} to update when skipping metadata filter")
+            
+            articles_without_id = 0
+            articles_already_approved = 0
+            
             for article in articles:
-                # Check current selected status - only update if not already METADATA_APPROVED or higher
+                # Skip articles without IDs
+                if not article.id or article.id == "":
+                    articles_without_id += 1
+                    print(f"DEBUG: Skipping article without ID: {getattr(article, 'title', 'Unknown')[:50]}")
+                    continue
+                    
+                # Check current selected status
                 current_selected = getattr(article, 'selected', SelectionStage.NOT_SELECTED.value)
+                print(f"DEBUG: Article {article.id} ({getattr(article, 'title', 'Unknown')[:50]}): current_selected={current_selected} (type: {type(current_selected)})")
+                
                 if current_selected is not None:
                     try:
                         current_selected = int(current_selected) if isinstance(current_selected, (str, int)) else SelectionStage.NOT_SELECTED.value
@@ -3309,10 +3408,48 @@ def skip_workflow_step():
                 else:
                     current_selected = SelectionStage.NOT_SELECTED.value
                 
-                # Update to METADATA_APPROVED if not already at that stage or higher
+                print(f"DEBUG: Article {article.id}: parsed current_selected={current_selected}, METADATA_APPROVED.value={SelectionStage.METADATA_APPROVED.value}")
+                
+                # Update ALL articles to METADATA_APPROVED, regardless of current status
+                # This ensures that when skipping, all articles are treated as if they passed metadata filtering
+                # Force update even if already METADATA_APPROVED to ensure consistency
                 if current_selected < SelectionStage.METADATA_APPROVED.value:
                     update_data.append((article.id, SelectionStage.METADATA_APPROVED.value, "selected"))
                     articles_updated += 1
+                    print(f"DEBUG: Adding update for article {article.id} ({getattr(article, 'title', 'Unknown')[:50]}) from selected={current_selected} to METADATA_APPROVED")
+                else:
+                    articles_already_approved += 1
+                    print(f"DEBUG: Article {article.id} already at or above METADATA_APPROVED (selected={current_selected}), skipping selected update")
+                
+                # Always reset all filtered_out flags to ensure articles aren't excluded
+                # Check if flags exist and are truthy (could be 1, True, or "1" from database)
+                # Convert to int for comparison since SQLite stores as TEXT
+                venue_filtered = getattr(article, 'venue_filtered_out', None)
+                print(f"DEBUG: Article {article.id}: venue_filtered_out={venue_filtered} (type: {type(venue_filtered)})")
+                if venue_filtered and (venue_filtered == 1 or venue_filtered == "1" or str(venue_filtered).strip() == "1" or venue_filtered is True):
+                    update_data.append((article.id, 0, "venue_filtered_out"))
+                    print(f"DEBUG: Clearing venue_filtered_out for article {article.id}")
+                
+                year_filtered = getattr(article, 'year_filtered_out', None)
+                print(f"DEBUG: Article {article.id}: year_filtered_out={year_filtered} (type: {type(year_filtered)})")
+                if year_filtered and (year_filtered == 1 or year_filtered == "1" or str(year_filtered).strip() == "1" or year_filtered is True):
+                    update_data.append((article.id, 0, "year_filtered_out"))
+                    print(f"DEBUG: Clearing year_filtered_out for article {article.id}")
+                
+                language_filtered = getattr(article, 'language_filtered_out', None)
+                print(f"DEBUG: Article {article.id}: language_filtered_out={language_filtered} (type: {type(language_filtered)})")
+                if language_filtered and (language_filtered == 1 or language_filtered == "1" or str(language_filtered).strip() == "1" or language_filtered is True):
+                    update_data.append((article.id, 0, "language_filtered_out"))
+                    print(f"DEBUG: Clearing language_filtered_out for article {article.id}")
+                
+                download_filtered = getattr(article, 'download_filtered_out', None)
+                print(f"DEBUG: Article {article.id}: download_filtered_out={download_filtered} (type: {type(download_filtered)})")
+                if download_filtered and (download_filtered == 1 or download_filtered == "1" or str(download_filtered).strip() == "1" or download_filtered is True):
+                    update_data.append((article.id, 0, "download_filtered_out"))
+                    print(f"DEBUG: Clearing download_filtered_out for article {article.id}")
+            
+            print(f"DEBUG: Summary - Total articles: {len(articles)}, Without ID: {articles_without_id}, Already approved: {articles_already_approved}, To update: {articles_updated}")
+            print(f"DEBUG: Total updates prepared: {len(update_data)}, articles_updated: {articles_updated}")
         
         elif step_name == 'Step 6: Filter by Title':
             # Skip title filter: approve all METADATA_APPROVED articles in screening table only
@@ -3341,7 +3478,8 @@ def skip_workflow_step():
                     keep_title=True,
                     title_reason='Step skipped - all articles approved',
                     keep_content=False,
-                    content_reason=''
+                    content_reason='',
+                    title=article.title
                 )
                 articles_updated += 1
         
@@ -3372,13 +3510,18 @@ def skip_workflow_step():
                     keep_title=True,  # Assume title was approved if we're at content filtering
                     title_reason='',
                     keep_content=True,
-                    content_reason='Step skipped - all articles approved'
+                    content_reason='Step skipped - all articles approved',
+                    title=article.title
                 )
                 articles_updated += 1
         
         # Apply bulk updates if any
         if update_data:
+            print(f"DEBUG: Applying {len(update_data)} updates to database")
             db_manager.update_batch_iteration_data(current_iteration, update_data)
+            print(f"DEBUG: Updates applied successfully")
+        else:
+            print(f"DEBUG: No updates to apply (update_data is empty)")
         
         db_manager.conn.close()
 
@@ -3423,7 +3566,7 @@ def solve_title_disagreements_page():
     default_iteration = current_iteration if current_iteration is not None else 0
     
     # Get main database path from config
-    main_db_path = search_conf.get('db_path', 'database.db') if search_conf else 'database.db'
+    main_db_path = search_conf.get('db_path', os.path.join(DATABASES_DIR, 'database.db')) if search_conf else os.path.join(DATABASES_DIR, 'database.db')
     
     return render_template('solve_title_disagreements.html',
                          default_iteration=default_iteration,
@@ -3450,9 +3593,16 @@ def merge_title_databases():
             if not os.path.exists(db_path):
                 return jsonify({'error': f'Database not found: {db_path}'}), 400
         
-        # Copy first database to merged database name
+        # Determine merged database path
         merged_db_path = merged_db_name if os.path.isabs(merged_db_name) else os.path.join(os.path.dirname(db_paths[0]), merged_db_name)
-        shutil.copy2(db_paths[0], merged_db_path)
+        
+        # Normalize paths to handle relative/absolute path differences
+        normalized_first_db = os.path.normpath(os.path.abspath(db_paths[0]))
+        normalized_merged_db = os.path.normpath(os.path.abspath(merged_db_path))
+        
+        # Only copy if source and destination are different
+        if normalized_first_db != normalized_merged_db:
+            shutil.copy2(db_paths[0], merged_db_path)
         
         # Open merged database
         merged_db = DBManager(merged_db_path)
@@ -3645,6 +3795,98 @@ def save_title_disagreement_decision():
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/workflow/solve_title_disagreements/merge_results_back', methods=['POST'])
+def merge_title_results_back():
+    """Merge all results from merged database back to one of the initial databases"""
+    try:
+        data = request.get_json()
+        merged_db_path = data.get('merged_db_path')
+        target_db_path = data.get('target_db_path')
+        iteration = int(data.get('iteration'))
+        
+        if not merged_db_path or not target_db_path:
+            return jsonify({'error': 'Merged database path and target database path are required'}), 400
+        
+        if not os.path.exists(merged_db_path):
+            return jsonify({'error': f'Merged database not found: {merged_db_path}'}), 400
+        
+        if not os.path.exists(target_db_path):
+            return jsonify({'error': f'Target database not found: {target_db_path}'}), 400
+        
+        # Open both databases
+        merged_db = DBManager(merged_db_path)
+        target_db = DBManager(target_db_path)
+        
+        # 1. Copy all screening table data from merged to target
+        # Get all screening data from merged database
+        merged_db.conn.row_factory = sqlite3.Row
+        merged_cursor = merged_db.conn.cursor()
+        merged_cursor.execute("SELECT * FROM screening WHERE iteration = ?", (iteration,))
+        screening_rows = merged_cursor.fetchall()
+        
+        if screening_rows:
+            # Get column names
+            column_names = [description[0] for description in merged_cursor.description]
+            columns_str = ', '.join(column_names)
+            placeholders = ', '.join(['?'] * len(column_names))
+            insert_query = f"INSERT OR REPLACE INTO screening ({columns_str}) VALUES ({placeholders})"
+            
+            # Insert into target database
+            for row in screening_rows:
+                values = [row[col] for col in column_names]
+                target_db.cursor.execute(insert_query, values)
+        
+        merged_db.conn.row_factory = None
+        merged_cursor.close()
+        
+        # 2. Copy all iterations table updates (selected, keep_title, keep_content) from merged to target
+        merged_articles = merged_db.get_iteration_data(iteration=iteration)
+        update_data = []
+        for article in merged_articles:
+            # Get current values from merged database
+            selected = getattr(article, 'selected', None)
+            keep_title = getattr(article, 'keep_title', None)
+            keep_content = getattr(article, 'keep_content', None)
+            
+            # Check if article exists in target database
+            target_articles = target_db.get_iteration_data(iteration=iteration, id=article.id)
+            if target_articles:
+                # Update existing article
+                if selected is not None:
+                    update_data.append((article.id, selected, "selected"))
+                if keep_title is not None:
+                    keep_title_int = 1 if (keep_title == 1 or keep_title == "1" or keep_title is True) else 0
+                    update_data.append((article.id, keep_title_int, "keep_title"))
+                if keep_content is not None:
+                    keep_content_int = 1 if (keep_content == 1 or keep_content == "1" or keep_content is True) else 0
+                    update_data.append((article.id, keep_content_int, "keep_content"))
+        
+        if update_data:
+            target_db.update_batch_iteration_data(iteration, update_data)
+        
+        target_db.conn.commit()
+        merged_db.conn.close()
+        target_db.conn.close()
+        
+        # 3. Update workflow state to use target database
+        update_workflow_state(
+            db_path=target_db_path,
+            current_iteration=iteration,
+            last_step="Step 7: Solve Title Disagreements"
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully merged all results from merged database to {target_db_path}'
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/workflow/solve_content_disagreements', methods=['GET'])
 def solve_content_disagreements_page():
     """Page for Step 9: Solve Content Disagreements"""
@@ -3658,7 +3900,7 @@ def solve_content_disagreements_page():
     default_iteration = current_iteration if current_iteration is not None else 0
     
     # Get main database path from config
-    main_db_path = search_conf.get('db_path', 'database.db') if search_conf else 'database.db'
+    main_db_path = search_conf.get('db_path', os.path.join(DATABASES_DIR, 'database.db')) if search_conf else os.path.join(DATABASES_DIR, 'database.db')
     
     return render_template('solve_content_disagreements.html',
                          default_iteration=default_iteration,
@@ -3685,9 +3927,16 @@ def merge_content_databases():
             if not os.path.exists(db_path):
                 return jsonify({'error': f'Database not found: {db_path}'}), 400
         
-        # Copy first database to merged database name
+        # Determine merged database path
         merged_db_path = merged_db_name if os.path.isabs(merged_db_name) else os.path.join(os.path.dirname(db_paths[0]), merged_db_name)
-        shutil.copy2(db_paths[0], merged_db_path)
+        
+        # Normalize paths to handle relative/absolute path differences
+        normalized_first_db = os.path.normpath(os.path.abspath(db_paths[0]))
+        normalized_merged_db = os.path.normpath(os.path.abspath(merged_db_path))
+        
+        # Only copy if source and destination are different
+        if normalized_first_db != normalized_merged_db:
+            shutil.copy2(db_paths[0], merged_db_path)
         
         # Open merged database
         merged_db = DBManager(merged_db_path)
@@ -3894,6 +4143,97 @@ def save_content_disagreement_decision():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/workflow/solve_content_disagreements/merge_results_back', methods=['POST'])
+def merge_content_results_back():
+    """Merge all results from merged database back to one of the initial databases"""
+    try:
+        data = request.get_json()
+        merged_db_path = data.get('merged_db_path')
+        target_db_path = data.get('target_db_path')
+        iteration = int(data.get('iteration'))
+        
+        if not merged_db_path or not target_db_path:
+            return jsonify({'error': 'Merged database path and target database path are required'}), 400
+        
+        if not os.path.exists(merged_db_path):
+            return jsonify({'error': f'Merged database not found: {merged_db_path}'}), 400
+        
+        if not os.path.exists(target_db_path):
+            return jsonify({'error': f'Target database not found: {target_db_path}'}), 400
+        
+        # Open both databases
+        merged_db = DBManager(merged_db_path)
+        target_db = DBManager(target_db_path)
+        
+        # 1. Copy all screening table data from merged to target
+        # Get all screening data from merged database
+        merged_db.conn.row_factory = sqlite3.Row
+        merged_cursor = merged_db.conn.cursor()
+        merged_cursor.execute("SELECT * FROM screening WHERE iteration = ?", (iteration,))
+        screening_rows = merged_cursor.fetchall()
+        
+        if screening_rows:
+            # Get column names
+            column_names = [description[0] for description in merged_cursor.description]
+            columns_str = ', '.join(column_names)
+            placeholders = ', '.join(['?'] * len(column_names))
+            insert_query = f"INSERT OR REPLACE INTO screening ({columns_str}) VALUES ({placeholders})"
+            
+            # Insert into target database
+            for row in screening_rows:
+                values = [row[col] for col in column_names]
+                target_db.cursor.execute(insert_query, values)
+        
+        merged_db.conn.row_factory = None
+        merged_cursor.close()
+        
+        # 2. Copy all iterations table updates (selected, keep_title, keep_content) from merged to target
+        merged_articles = merged_db.get_iteration_data(iteration=iteration)
+        update_data = []
+        for article in merged_articles:
+            # Get current values from merged database
+            selected = getattr(article, 'selected', None)
+            keep_title = getattr(article, 'keep_title', None)
+            keep_content = getattr(article, 'keep_content', None)
+            
+            # Check if article exists in target database
+            target_articles = target_db.get_iteration_data(iteration=iteration, id=article.id)
+            if target_articles:
+                # Update existing article
+                if selected is not None:
+                    update_data.append((article.id, selected, "selected"))
+                if keep_title is not None:
+                    keep_title_int = 1 if (keep_title == 1 or keep_title == "1" or keep_title is True) else 0
+                    update_data.append((article.id, keep_title_int, "keep_title"))
+                if keep_content is not None:
+                    keep_content_int = 1 if (keep_content == 1 or keep_content == "1" or keep_content is True) else 0
+                    update_data.append((article.id, keep_content_int, "keep_content"))
+        
+        if update_data:
+            target_db.update_batch_iteration_data(iteration, update_data)
+        
+        target_db.conn.commit()
+        merged_db.conn.close()
+        target_db.conn.close()
+        
+        # 3. Update workflow state to use target database
+        update_workflow_state(
+            db_path=target_db_path,
+            current_iteration=iteration,
+            last_step="Step 9: Solve Content Disagreements"
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully merged all results from merged database to {target_db_path}'
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/workflow/remove_duplicates', methods=['GET'])
 def remove_duplicates_page():
     """Page for Step 2: Remove Duplicates"""
@@ -3933,9 +4273,18 @@ def find_duplicates():
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
         
-        # Fetch articles from all specified iterations
-        total_articles = []
+        # Expand iterations: if user selects iteration n, include all iterations from 0 to n
+        # Remove duplicates and sort
+        expanded_iterations = set()
         for iteration in iterations:
+            # For each selected iteration, include all iterations from 0 to that iteration
+            for i in range(0, iteration + 1):
+                expanded_iterations.add(i)
+        expanded_iterations = sorted(list(expanded_iterations))
+        
+        # Fetch articles from all expanded iterations
+        total_articles = []
+        for iteration in expanded_iterations:
             articles = db_manager.get_iteration_data(
                 iteration=iteration,
                 selected=SelectionStage.CONTENT_APPROVED
@@ -4310,6 +4659,8 @@ def generate_analysis_conf_route():
         }
         
         # Save analysis config to file
+        # Ensure confs directory exists
+        os.makedirs(CONFS_DIR, exist_ok=True)
         with open(ANALYSIS_CONF_PATH, 'w') as f:
             json.dump(analysis_config, f, indent=4)
         

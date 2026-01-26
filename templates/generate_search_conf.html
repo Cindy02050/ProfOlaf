@@ -38,14 +38,14 @@
                                         <i class="fas fa-calendar"></i> Starting Year <span class="text-danger">*</span>
                                     </label>
                                     <input type="number" class="form-control" id="start_year" name="start_year" 
-                                           value="2020" min="1900" max="2100" required>
+                                           value="{{ start_year }}" min="1900" max="2100" required>
                                 </div>
                                 <div class="col-md-6">
                                     <label for="end_year" class="form-label">
                                         <i class="fas fa-calendar"></i> Ending Year <span class="text-danger">*</span>
                                     </label>
                                     <input type="number" class="form-control" id="end_year" name="end_year" 
-                                           value="2024" min="1900" max="2100" required>
+                                           value="{{ end_year }}" min="1900" max="2100" required>
                                 </div>
                             </div>
 
@@ -56,7 +56,7 @@
                                 </label>
                                 <input type="text" class="form-control" id="venue_rank_list" name="venue_rank_list" 
                                        placeholder="A*, A, B, C, Q1, Q2 (comma-separated)" 
-                                       value="A*, A, B, C, Q1, Q2">
+                                       value="{{ venue_rank_list }}">
                                 <div class="form-text">Enter venue ranks separated by commas (e.g., A*, A, B, Q1, Q2)</div>
                             </div>
 
@@ -66,9 +66,9 @@
                                     <i class="fas fa-search"></i> Search Method
                                 </label>
                                 <select class="form-select" id="search_method" name="search_method">
-                                    <option value="google_scholar" selected>Google Scholar</option>
-                                    <option value="semantic_scholar">Semantic Scholar</option>
-                                    <option value="dblp">DBLP</option>
+                                    <option value="google_scholar" {% if search_method == 'google_scholar' %}selected{% endif %}>Google Scholar</option>
+                                    <option value="semantic_scholar" {% if search_method == 'semantic_scholar' %}selected{% endif %}>Semantic Scholar</option>
+                                    <option value="dblp" {% if search_method == 'dblp' %}selected{% endif %}>DBLP</option>
                                 </select>
                             </div>
 
@@ -79,7 +79,7 @@
                                 </label>
                                 <div class="input-group">
                                     <input type="text" class="form-control" id="proxy_key" name="proxy_key" 
-                                           placeholder="Enter proxy key or file path">
+                                           placeholder="Enter proxy key or file path" value="{{ proxy_key }}">
                                     <div class="input-group-text">
                                         <input class="form-check-input mt-0" type="checkbox" id="proxy_from_file" 
                                                name="proxy_from_file" value="true">
@@ -97,8 +97,21 @@
                                     <i class="fas fa-file"></i> Initial File <span class="text-danger">*</span>
                                 </label>
                                 <input type="text" class="form-control" id="initial_file" name="initial_file" 
-                                       value="seed.txt" required>
-                                <div class="form-text">Path to the file containing initial paper titles (txt or json)</div>
+                                       value="{{ initial_file }}" required>
+                                <div class="form-text">Path to the file containing initial paper titles (txt or json). Default: confs/seed.txt</div>
+                            </div>
+
+                            <!-- Seed File Editor -->
+                            <div class="mb-3">
+                                <label for="seed_content" class="form-label">
+                                    <i class="fas fa-edit"></i> Edit Seed File Content
+                                </label>
+                                <textarea class="form-control font-monospace" id="seed_content" name="seed_content" 
+                                          rows="10" placeholder="Enter paper titles, one per line, or JSON format:&#10;{&#10;  &quot;papers&quot;: [&#10;    {&quot;title&quot;: &quot;Paper Title 1&quot;},&#10;    {&quot;title&quot;: &quot;Paper Title 2&quot;}&#10;  ]&#10;}">{{ seed_content if seed_content else '' }}</textarea>
+                                <div class="form-text">
+                                    <strong>Format:</strong> One title per line (TXT) or JSON format with papers array. 
+                                    This content will be saved to <code>confs/seed.txt</code>.
+                                </div>
                             </div>
 
                             <!-- Database Path -->
@@ -107,7 +120,7 @@
                                     <i class="fas fa-database"></i> Database Path <span class="text-danger">*</span>
                                 </label>
                                 <input type="text" class="form-control" id="db_path" name="db_path" 
-                                       value="database.db" required>
+                                       value="{{ db_path }}" required>
                                 <div class="form-text">Path to the SQLite database file</div>
                             </div>
 
@@ -117,7 +130,7 @@
                                     <i class="fas fa-file-csv"></i> CSV Path <span class="text-danger">*</span>
                                 </label>
                                 <input type="text" class="form-control" id="csv_path" name="csv_path" 
-                                       value="results.csv" required>
+                                       value="{{ csv_path }}" required>
                                 <div class="form-text">Path to the final CSV output file</div>
                             </div>
 
@@ -127,7 +140,7 @@
                                     <i class="fas fa-user"></i> Rater ID <span class="text-danger">*</span>
                                 </label>
                                 <input type="text" class="form-control" id="rater" name="rater" 
-                                       value="default" required>
+                                       value="{{ rater }}" required>
                                 <div class="form-text">Unique identifier for the rater/user (used in screening table)</div>
                             </div>
 
@@ -137,7 +150,7 @@
                                     <i class="fas fa-tags"></i> Annotations (Optional)
                                 </label>
                                 <textarea class="form-control" id="annotations" name="annotations" rows="3" 
-                                          placeholder="Enter annotations, one per line"></textarea>
+                                          placeholder="Enter annotations, one per line">{{ annotations }}</textarea>
                                 <div class="form-text">Optional annotations, one per line</div>
                             </div>
 

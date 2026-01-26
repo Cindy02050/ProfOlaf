@@ -1,4 +1,6 @@
 import sys, re, json, html, difflib
+import os
+import csv
 from dataclasses import dataclass, asdict
 from typing import Optional, List, Tuple, Dict, Any
 from urllib.parse import quote_plus, urljoin, urlparse, parse_qs
@@ -6,6 +8,10 @@ import requests
 from bs4 import BeautifulSoup
 from utils.venue_rank_search.conference_similarity_search import VenueMatch, similarity_score
 SCIMAGO_BASE_URL = "https://www.scimagojr.com/"
+
+# Path to the Scimago CSV file
+# From utils/venue_rank_search/scimago_search.py to utils/ranking_tables/scimagojr.csv
+SCIMAGO_CSV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ranking_tables", "scimagojr.csv")
 
 @dataclass
 class JournalRank:
@@ -141,9 +147,148 @@ def parse_categories_quartile(html_text: str) -> Dict[str, Dict[str, Any]]:
         return data
     
 
-def find_scimago_rank(venue: str, session: Optional[requests.Session] = None, min_similarity: float = 0.5):
+def _load_scimago_csv():
+    """Load the Scimago CSV file into memory. Returns a list of dictionaries."""
+    if not os.path.exists(SCIMAGO_CSV_PATH):
+        raise FileNotFoundError(f"Scimago CSV file not found at {SCIMAGO_CSV_PATH}")
+    
+    journals = []
+    with open(SCIMAGO_CSV_PATH, 'r', encoding='utf-8') as f:
+        # CSV uses semicolon as delimiter
+        reader = csv.DictReader(f, delimiter=';')
+        for row in reader:
+            journals.append({
+                'title': row.get('Title', '').strip(),
+                'categories': row.get('Categories', '').strip(),
+                'sjr': row.get('SJR', '').strip(),
+                'sjr_best_quartile': row.get('SJR Best Quartile', '').strip()
+            })
+    return journals
+
+def _parse_categories_from_csv(categories_str: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Parse categories string from CSV format: "Category1 (Q1); Category2 (Q2); ..."
+    Returns a dictionary similar to parse_categories_quartile format.
+    """
+    if not categories_str:
+        return {}
+    
+    categories = {}
+    # Split by semicolon
+    category_parts = [part.strip() for part in categories_str.split(';')]
+    
+    for part in category_parts:
+        # Match pattern like "Category Name (Q1)" or "Category Name (Q2)"
+        match = re.match(r'^(.+?)\s*\(([Qq][1-4])\)$', part)
+        if match:
+            category_name = match.group(1).strip()
+            quartile = match.group(2).upper()
+            
+            # Create structure similar to parse_categories_quartile
+            if category_name not in categories:
+                categories[category_name] = {
+                    "entries": [],
+                    "latest": {"quartile": quartile},
+                    "best_quartile": quartile,
+                    "current": {"quartile": quartile}
+                }
+            else:
+                # Update if this is a better quartile
+                current_best = categories[category_name]["best_quartile"]
+                quartile_order = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
+                if quartile_order.get(quartile, 99) < quartile_order.get(current_best, 99):
+                    categories[category_name]["best_quartile"] = quartile
+                    categories[category_name]["latest"]["quartile"] = quartile
+                    categories[category_name]["current"]["quartile"] = quartile
+    
+    return categories
+
+def find_scimago_rank_from_csv(venue: str, min_similarity: float = 0.5):
+    """
+    Find the rank of the venue from Scimago CSV file.
+    Returns the same structure as find_scimago_rank for compatibility.
+    """
+    journals = _load_scimago_csv()
+    
+    # Find best matching journal by title similarity
+    candidates = []
+    for journal in journals:
+        title = journal['title']
+        score = similarity_score(venue, title)
+        candidates.append({
+            'title': title,
+            'score': score,
+            'categories': journal['categories'],
+            'sjr': journal['sjr'],
+            'sjr_best_quartile': journal['sjr_best_quartile']
+        })
+    
+    # Sort by similarity score
+    candidates.sort(key=lambda x: x['score'], reverse=True)
+    
+    if not candidates:
+        raise RuntimeError(f"No candidates found for {venue}")
+    
+    # Get best match
+    best_match = candidates[0]
+    if best_match['score'] < min_similarity:
+        # Try to find a better match from top 5
+        for candidate in candidates[:5]:
+            if candidate['score'] >= min_similarity:
+                best_match = candidate
+                break
+    
+    if best_match['score'] < min_similarity:
+        raise RuntimeError(f"No suitable match found for {venue} (best similarity: {best_match['score']:.2f})")
+    
+    # Create VenueMatch object (without URL since we're using CSV)
+    best = VenueMatch(
+        title=best_match['title'],
+        url="",  # No URL for CSV-based search
+        sid=None,
+        similarity_score=best_match['score']
+    )
+    
+    # Create JournalRank object
+    # Try to extract SJR value if available
+    sjr_value = None
+    try:
+        sjr_str = best_match['sjr'].replace(',', '.')
+        sjr_value = float(sjr_str) if sjr_str else None
+    except (ValueError, AttributeError):
+        pass
+    
+    rank = JournalRank(
+        title=best_match['title'],
+        sjr_year=None,  # CSV doesn't have year info
+        sjr_value=sjr_value,
+        quartile=best_match['sjr_best_quartile'] if best_match['sjr_best_quartile'] else None,
+        url=""  # No URL for CSV-based search
+    )
+    
+    # Parse categories
+    categories = _parse_categories_from_csv(best_match['categories'])
+    
+    return best, rank, categories
+
+def find_scimago_rank(venue: str, session: Optional[requests.Session] = None, min_similarity: float = 0.5, use_csv: bool = True):
     """
     Find the rank of the venue from Scimago.
+    By default, uses CSV file. Set use_csv=False to use web scraping (legacy).
+    """
+    if use_csv:
+        try:
+            return find_scimago_rank_from_csv(venue, min_similarity)
+        except (FileNotFoundError, RuntimeError) as e:
+            # Fall back to web scraping if CSV fails
+            print(f"CSV search failed: {e}. Falling back to web scraping...")
+            return find_scimago_rank_web(venue, session, min_similarity)
+    else:
+        return find_scimago_rank_web(venue, session, min_similarity)
+
+def find_scimago_rank_web(venue: str, session: Optional[requests.Session] = None, min_similarity: float = 0.5):
+    """
+    Find the rank of the venue from Scimago using web scraping (legacy method).
     """
     session = session or requests.Session()
     candidates = scimago_search(venue, session)

@@ -1,13 +1,7 @@
-import sys, re, os, json, csv, html, difflib
-import bibtexparser
+import json
 import argparse
-from typing import List, Set, Dict, Tuple
-from itertools import zip_longest
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
-from utils.pretty_print_utils import pretty_print, format_color_string, prompt_input
+from utils.cli.pretty_print_utils import pretty_print, format_color_string, prompt_input
 from tabulate import tabulate
 
 from utils.db_management import (
@@ -17,7 +11,7 @@ from utils.db_management import (
 )
 from utils.pipeline.generate_conf_rank_utils import get_venues, get_unindexed_venues
 
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 def parse_args():
@@ -43,4 +37,4 @@ if __name__ == "__main__":
 
     conf_rank = db_manager.get_conf_rank_data()
     conf_rank = {venue: rank for venue, rank in conf_rank}
-    get_unindexed_venues(venues, conf_rank)
+    get_unindexed_venues(venues, conf_rank, db_manager, search_conf)

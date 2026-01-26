@@ -1,6 +1,7 @@
 import requests
 import bibtexparser
 from typing import List, Tuple
+from scholarly import scholarly
 from ..db_management import DBManager, ArticleData
 from ..article_search.article_search_method import (
     ArticleSearch, 
@@ -80,8 +81,8 @@ def get_alternative_bibtexes_cached(pub):
             return version
     return ""
 
-def _get_main_bibtex(article: ArticleData) -> Tuple[str, str]:
-    current_wait_time = 20
+def _get_main_bibtex(article: ArticleData, delay_between_requests: float = 1.0) -> Tuple[str, str]:
+    current_wait_time = delay_between_requests
     max_retries = 3
     retry_count = 0
 
@@ -100,16 +101,17 @@ def _get_main_bibtex(article: ArticleData) -> Tuple[str, str]:
             title = article.title
             print(f"Error processing {title}: {e}")
             retry_count += 1
-            print(f"Retrying, waiting {current_wait_time}...", file=sys.stderr)
-            sys.stdout.flush()
-            time.sleep(current_wait_time)
-            current_wait_time *= 2
+            if retry_count < max_retries:
+                print(f"Retrying, waiting {current_wait_time}...", file=sys.stderr)
+                sys.stdout.flush()
+                time.sleep(current_wait_time)
+                current_wait_time *= 2
             continue
     return None, None
 
-def _get_dblp_bibtex(article: ArticleData) -> Tuple[str, str]:
+def _get_dblp_bibtex(article: ArticleData, delay_between_requests: float = 1.0) -> Tuple[str, str]:
     article_search = ArticleSearch(DBLPSearchMethod())
-    current_wait_time = 20
+    current_wait_time = delay_between_requests
     max_retries = 3
     retry_count = 0
     while retry_count < max_retries:
@@ -119,20 +121,37 @@ def _get_dblp_bibtex(article: ArticleData) -> Tuple[str, str]:
                 return bibtex
             else:
                 return bibtex
+        except requests.exceptions.HTTPError as e:
+            # Handle HTTP errors (like 500) gracefully
+            title = article.title
+            if e.response and e.response.status_code >= 500:
+                print(f"DBLP server error for {title}: {e.response.status_code} - {e}", file=sys.stderr)
+                # Don't retry on server errors, just return None
+                return None
+            else:
+                print(f"Error processing {title}: {e}", file=sys.stderr)
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"Retrying, waiting {current_wait_time}...", file=sys.stderr)
+                    sys.stdout.flush()
+                    time.sleep(current_wait_time)
+                    current_wait_time *= 2
+                continue
         except Exception as e:
             title = article.title
-            print(f"Error processing {title}: {e}")
+            print(f"Error processing {title}: {e}", file=sys.stderr)
             retry_count += 1
-            print(f"Retrying, waiting {current_wait_time}...", file=sys.stderr)
-            sys.stdout.flush()
-            time.sleep(current_wait_time)
-            current_wait_time *= 2
+            if retry_count < max_retries:
+                print(f"Retrying, waiting {current_wait_time}...", file=sys.stderr)
+                sys.stdout.flush()
+                time.sleep(current_wait_time)
+                current_wait_time *= 2
             continue
 
     return None
 
-def _get_alternative_bibtex(pub: dict) -> Tuple[str, str]:
-    current_wait_time = 20
+def _get_alternative_bibtex(pub: dict, delay_between_requests: float = 1.0) -> Tuple[str, str]:
+    current_wait_time = delay_between_requests
     max_retries = 3
     retry_count = 0
     while retry_count < max_retries:
@@ -146,10 +165,11 @@ def _get_alternative_bibtex(pub: dict) -> Tuple[str, str]:
             title = pub.get('title', "")
             print(f"Error processing {title}: {e}")
             retry_count += 1
-            print(f"Retrying, waiting {current_wait_time}...", file=sys.stderr)
-            sys.stdout.flush()
-            time.sleep(current_wait_time)
-            current_wait_time *= 2
+            if retry_count < max_retries:
+                print(f"Retrying, waiting {current_wait_time}...", file=sys.stderr)
+                sys.stdout.flush()
+                time.sleep(current_wait_time)
+                current_wait_time *= 2
             continue
         
     return None
@@ -161,32 +181,94 @@ def get_bibtex_single(article: ArticleData, search_method: SearchMethod = Search
     """
 
     time.sleep(delay_between_requests)
-    if search_method == SearchMethod.SEMANTIC_SCHOLAR.value:
-        article_search = ArticleSearch(SemanticScholarSearchMethod())
-        bibtex = article_search.get_bibtex(article)
-        if bibtex is not None and bibtex != "":
-            return article.id, bibtex
-        else:
-            return article.id, "NO_BIBTEX"
-
-
-    dblp_bibtex = _get_dblp_bibtex(article)
-    if dblp_bibtex is not None and dblp_bibtex != "":
-        return article.id, dblp_bibtex
     
-    scholar_bibtex, pub = _get_main_bibtex(article)
-    if scholar_bibtex is not None and scholar_bibtex != "" and pub is None:
-        return article.id, scholar_bibtex
-
-    if pub is not None:
-        alternative_bibtex = _get_alternative_bibtex(pub)
-        if alternative_bibtex is not None and alternative_bibtex != "":
-            return article.id, alternative_bibtex
+    # Try the selected method first, then fall back to others if it fails
+    # Note: DBLP is disabled as a fallback option due to API issues
+    if search_method == SearchMethod.SEMANTIC_SCHOLAR.value:
+        # Try Semantic Scholar first
+        try:
+            article_search = ArticleSearch(SemanticScholarSearchMethod())
+            bibtex = article_search.get_bibtex(article)
+            if bibtex is not None and bibtex != "":
+                return article.id, bibtex
+        except Exception as e:
+            print(f"Semantic Scholar failed for {article.title}: {e}", file=sys.stderr)
         
-    if pub is not None and scholar_bibtex is not None and scholar_bibtex != "":
-        return article.id, scholar_bibtex
-    else:
-        print("No bibtex found")
+        # Fall back to Google Scholar (DBLP disabled as fallback)
+        try:
+            scholar_bibtex, pub = _get_main_bibtex(article, delay_between_requests)
+            if scholar_bibtex is not None and scholar_bibtex != "" and pub is None:
+                return article.id, scholar_bibtex
+            if pub is not None:
+                alternative_bibtex = _get_alternative_bibtex(pub, delay_between_requests)
+                if alternative_bibtex is not None and alternative_bibtex != "":
+                    return article.id, alternative_bibtex
+            if pub is not None and scholar_bibtex is not None and scholar_bibtex != "":
+                return article.id, scholar_bibtex
+        except Exception as e:
+            print(f"Google Scholar fallback failed for {article.title}: {e}", file=sys.stderr)
+        
+        return article.id, "NO_BIBTEX"
+    
+    elif search_method == SearchMethod.DBLP_SEARCH.value:
+        # Try DBLP first (only if explicitly selected)
+        try:
+            dblp_bibtex = _get_dblp_bibtex(article, delay_between_requests)
+            if dblp_bibtex is not None and dblp_bibtex != "":
+                return article.id, dblp_bibtex
+        except Exception as e:
+            print(f"DBLP failed for {article.title}: {e}", file=sys.stderr)
+        
+        # Fall back to Google Scholar
+        try:
+            scholar_bibtex, pub = _get_main_bibtex(article, delay_between_requests)
+            if scholar_bibtex is not None and scholar_bibtex != "" and pub is None:
+                return article.id, scholar_bibtex
+            if pub is not None:
+                alternative_bibtex = _get_alternative_bibtex(pub, delay_between_requests)
+                if alternative_bibtex is not None and alternative_bibtex != "":
+                    return article.id, alternative_bibtex
+            if pub is not None and scholar_bibtex is not None and scholar_bibtex != "":
+                return article.id, scholar_bibtex
+        except Exception as e:
+            print(f"Google Scholar fallback failed for {article.title}: {e}", file=sys.stderr)
+        
+        # Fall back to Semantic Scholar
+        try:
+            article_search = ArticleSearch(SemanticScholarSearchMethod())
+            bibtex = article_search.get_bibtex(article)
+            if bibtex is not None and bibtex != "":
+                return article.id, bibtex
+        except Exception as e:
+            print(f"Semantic Scholar fallback failed for {article.title}: {e}", file=sys.stderr)
+        
+        return article.id, "NO_BIBTEX"
+    
+    else:  # GOOGLE_SCHOLAR (default)
+        # Try Google Scholar first
+        try:
+            scholar_bibtex, pub = _get_main_bibtex(article, delay_between_requests)
+            if scholar_bibtex is not None and scholar_bibtex != "" and pub is None:
+                return article.id, scholar_bibtex
+            if pub is not None:
+                alternative_bibtex = _get_alternative_bibtex(pub, delay_between_requests)
+                if alternative_bibtex is not None and alternative_bibtex != "":
+                    return article.id, alternative_bibtex
+            if pub is not None and scholar_bibtex is not None and scholar_bibtex != "":
+                return article.id, scholar_bibtex
+        except Exception as e:
+            print(f"Google Scholar failed for {article.title}: {e}", file=sys.stderr)
+        
+        # Fall back to Semantic Scholar (DBLP disabled as fallback)
+        try:
+            article_search = ArticleSearch(SemanticScholarSearchMethod())
+            bibtex = article_search.get_bibtex(article)
+            if bibtex is not None and bibtex != "":
+                return article.id, bibtex
+        except Exception as e:
+            print(f"Semantic Scholar fallback failed for {article.title}: {e}", file=sys.stderr)
+        
+        print("No bibtex found from any method")
         return article.id, "NO_BIBTEX"
 
 def process_articles_batch(articles: List[ArticleData], max_workers: int = 3, search_method: SearchMethod = SearchMethod.GOOGLE_SCHOLAR, delay: float = 1.0, cancel_flag=None) -> List[Tuple[str, str]]:

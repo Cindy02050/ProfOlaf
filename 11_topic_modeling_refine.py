@@ -30,8 +30,7 @@ from utils.article_llm_analysis.topic_modeling import (
     TOPICGPT_AVAILABLE,
 )
 
-#FIXME: open analysis_conf.json from the correct path
-with open("analysis_conf.json", "r") as f:
+with open("confs/analysis_conf.json", "r") as f:
     analysis_conf = json.load(f)
 
 
@@ -230,7 +229,7 @@ def main():
     }
     if args.prompt_file:
         kwargs['prompt_file'] = args.prompt_file
-    
+
     result = topic_modeling_system.execute_step(
         args.pdf_folder,
         args.output_dir,

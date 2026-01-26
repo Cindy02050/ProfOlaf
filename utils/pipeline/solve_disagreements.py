@@ -51,7 +51,58 @@ def settle_agreements(iteration, merged_db: DBManager, selection_stage: Selectio
         )
             
 def solve_disagreements(iteration, merged_db: DBManager, selection_stage: SelectionStage):
-    phase = "title" if selection_stage == SelectionStage.TITLE_APPROVED else "content"
+    phase = "title" if selection_stage.value == SelectionStage.TITLE_APPROVED.value else "content"
+
+    # Check if there's only one rater in the whole database
+    table_name = "screening"
+    merged_db.cursor.execute(f"SELECT COUNT(DISTINCT rater) FROM {table_name}")
+    unique_rater_count = merged_db.cursor.fetchone()[0]
+    
+    if unique_rater_count == 1:
+        # Only one rater - skip manual disagreements and update iterations table directly
+        # Get all screening data for this iteration and phase
+        screening_data = merged_db.get_screening_data(
+            iteration=iteration,
+            title_settled=(selection_stage == SelectionStage.CONTENT_APPROVED),
+            content_settled=False
+        )
+        
+        # Group by article ID (should only be one entry per article since there's only one rater)
+        for screening_entry in screening_data:
+            article_id = screening_entry["id"]
+            keep_key = f"keep_{phase}"
+            keep_value = screening_entry.get(keep_key, False)
+            if isinstance(keep_value, int):
+                keep_value = bool(keep_value)
+            
+            # Settle the screening data
+            merged_db.settle_screening_data(iteration, article_id, True, phase=phase)
+            
+            # Update iterations table based on the single rater's decision
+            if not keep_value:
+                # Rater rejected - update iterations table accordingly
+                merged_db.update_iteration_data(
+                    iteration,
+                    article_id,
+                    selected=selection_stage.value - 1,
+                    keep_title=False if phase == "title" else bool(screening_entry.get("keep_title", False)),
+                    keep_content=False if phase == "content" else bool(screening_entry.get("keep_content", False))
+                )
+            else:
+                # Rater accepted - update iterations table
+                merged_db.update_iteration_data(
+                    iteration,
+                    article_id,
+                    selected=selection_stage.value,
+                    keep_title=bool(screening_entry.get("keep_title", False)),
+                    keep_content=bool(screening_entry.get("keep_content", False))
+                )
+        
+        # Skip manual disagreement resolution since there's only one rater
+        return
+
+    settle_agreements(iteration, merged_db, selection_stage)
+
     disagreements = merged_db.get_disagreements_screening_data(
         iteration=iteration, 
         title_settled=(selection_stage == SelectionStage.CONTENT_APPROVED),
@@ -70,38 +121,46 @@ def solve_disagreements(iteration, merged_db: DBManager, selection_stage: Select
         selected_by, not_selected_by = [], []
         for disagreement in disagreements:
             if disagreement[f"keep_{phase}"]:
-                selected_by.append(disagreement["rater"])
+                selected_by.append(disagreement)
             else:
-                not_selected_by.append(disagreement["rater"])
+                not_selected_by.append(disagreement)
         
         print(f"Article ID: {article_id}")
         title_string = format_color_string(disagreement["title"], "magenta", "bold")
         print(f"Title: {title_string}")
-        print(f"Selected by: {selected_by}")
-        
-        for rater in selected_by:
-            reason = disagreement[f"reason_{rater}"] if disagreement[f"reason_{rater}"] != "" else "No reason provided"
-            rater_string = format_color_string(rater, "green", "bold")
+        selected_by_raters = [disagreement["rater"] for disagreement in selected_by]
+        print(f"Selected by: {selected_by_raters}")
+
+        for disagreement in selected_by:
+            reason = disagreement[f"reason_{phase}"] if disagreement[f"reason_{phase}"] != "" else "No reason provided"
+            rater = disagreement["rater"]
+            disagreement_string = format_color_string(rater, "green", "bold")
             reason_string = format_color_string(reason, "green", "")
-            pretty_print(f"{rater_string}: {reason_string}")
+            pretty_print(f"{disagreement_string}: {reason_string}")
         print("\n--------------------------------")
-        print(f"Not selected by: {not_selected_by}")
-        for rater in not_selected_by:
-            reason = disagreement[f"reason_{rater}"] if disagreement[f"reason_{rater}"] != "" else "No reason provided"
-            rater_string = format_color_string(rater, "red", "bold")
+        not_selected_by_raters = [disagreement["rater"] for disagreement in not_selected_by]
+        print(f"Not selected by: {not_selected_by_raters}")
+        for disagreement in not_selected_by:
+            rater = disagreement["rater"]
+            reason = disagreement[f"reason_{phase}"] if disagreement[f"reason_{phase}"] != "" else "No reason provided"
+            disagreement_string = format_color_string(rater, "red", "bold")
             reason_string = format_color_string(reason, "red", "")
-            pretty_print(f"{rater_string}: {reason_string}")
+            pretty_print(f"{disagreement_string}: {reason_string}")
         
         while True:
             user_input = input(f"Do you want to keep this element? (y/n/s for skip): ").strip().lower()
             if user_input == 'y':
-                keep_title = True
-                keep_content = True if phase == "content" else False
-                merged_db.update_iteration_data(iteration, article_id, selected=selection_stage.value, keep_title=True, keep_content=True)
+                if phase == "title":
+                    merged_db.update_iteration_data(iteration, article_id, selected=selection_stage.value, keep_title=True)
+                else:
+                    merged_db.update_iteration_data(iteration, article_id, selected=selection_stage.value, keep_content=True)
+                break
             elif user_input == 'n':
-                keep_title = False if phase == "title" else True
-                keep_content = False
-                merged_db.update_iteration_data(iteration, article_id, selected=selection_stage.value-1, keep_title=False, keep_content=False)
+                if phase == "title":
+                    merged_db.update_iteration_data(iteration, article_id, selected=selection_stage.value-1, keep_title=False)
+                else:
+                    merged_db.update_iteration_data(iteration, article_id, selected=selection_stage.value-1, keep_content=False)
+                break
             elif user_input == 's':
                 break
             else:
@@ -111,10 +170,12 @@ def synchronize_screenings(iteration, merged_db: DBManager, selection_stage: Sel
     """
     Solve the disagreements between multiple raters.
     """
-    if selection_stage not in [SelectionStage.TITLE_APPROVED, SelectionStage.CONTENT_APPROVED]:
+    if selection_stage not in [DisagreementStage.TITLE, DisagreementStage.CONTENT]:
         raise ValueError(f"Selection stage {selection_stage} is not valid")
     
     settle_agreements(iteration, merged_db, selection_stage)
+
+    selected_pubs = merged_db.get_selected_pubs(iteration)
 
     disagreements = {}
     for rater, pubs in selected_pubs.items():

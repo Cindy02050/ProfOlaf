@@ -372,11 +372,20 @@
             document.getElementById('rankWarning').style.display = 'none';
 
             // Update progress
-            const progress = ((currentVenueIndex) / unindexedVenues.length) * 100;
-            progressBar.style.width = progress + '%';
-            progressText.textContent = `${currentVenueIndex} / ${unindexedVenues.length}`;
-            completedCount.textContent = currentVenueIndex;
-            remainingCount.textContent = unindexedVenues.length - currentVenueIndex;
+            // When viewing venue at currentVenueIndex, we've completed currentVenueIndex venues
+            // and are working on venue currentVenueIndex + 1 (1-based)
+            const completed = currentVenueIndex;
+            const total = unindexedVenues.length;
+            const remaining = total - completed - 1; // -1 because current venue is in progress
+            
+            // Progress percentage: completed venues / total
+            const progress = total > 0 ? ((completed + 1) / total) * 100 : 0;
+            progressBar.style.width = Math.min(progress, 100) + '%';
+            
+            // Progress text: show current venue number (1-based) out of total
+            progressText.textContent = `${completed + 1} / ${total}`;
+            completedCount.textContent = completed;
+            remainingCount.textContent = Math.max(remaining, 0);
 
             // Update navigation buttons
             prevVenueBtn.disabled = currentVenueIndex === 0;

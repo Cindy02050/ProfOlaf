@@ -19,7 +19,7 @@ COLOR_END = "[/bold magenta]"
 def format_color_string(string: str):
     return f"{COLOR_START}{string}{COLOR_END}"
 
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 

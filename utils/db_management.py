@@ -301,11 +301,16 @@ class DBManager:
         finally:
             self.conn.row_factory = None
     
-    def update_iteration_data(self, iteration: int, article_id: str, **kwargs):
+    def update_iteration_data(self, iteration: int, article_id: str = "", **kwargs):
         table_name = "iterations"
         try:
             assignments = ', '.join([f"{key} = ?" for key in kwargs.keys()])
-            sql_query = f"UPDATE {table_name} SET {assignments} WHERE id = ? and iteration = ?"
+            if article_id != "":
+                sql_query = f"UPDATE {table_name} SET {assignments} WHERE id = ? and iteration = ?"
+                values = [kwargs[key] for key in kwargs] + [article_id, iteration]
+            else:
+                sql_query = f"UPDATE {table_name} SET {assignments} WHERE iteration = ?"
+                values = [kwargs[key] for key in kwargs] + [iteration]
             for key, value in kwargs.items():
                 if hasattr(value, 'value'):  # Handle enum values
                     kwargs[key] = value.value
@@ -319,7 +324,8 @@ class DBManager:
                         kwargs[key] = str(value)
                     else:
                         kwargs[key] = str(value)  # Convert all ints to strings for consistency
-            self.cursor.execute(sql_query, [kwargs[key] for key in kwargs] + [article_id, iteration])
+            values = [kwargs[key] for key in kwargs] + [article_id, iteration] if article_id != "" else [kwargs[key] for key in kwargs] + [iteration]
+            self.cursor.execute(sql_query, values)
             self.conn.commit()
         except Exception as e:
             self.conn.rollback()
@@ -393,10 +399,17 @@ class DBManager:
                         print(f"WARNING: Dropping {table_name} table to recreate with composite primary key")
                         self.cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
                     else:
-                        # Table exists with correct structure - just ensure annotation columns exist
+                        # Table exists with correct structure - just ensure annotation columns and title column exist
                         self.cursor.execute(f"PRAGMA table_info({table_name})")
                         columns_info = self.cursor.fetchall()
                         existing_columns = [col[1] for col in columns_info]
+                        # Add title column if it doesn't exist
+                        if "title" not in existing_columns:
+                            try:
+                                self.cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN title TEXT")
+                            except sqlite3.OperationalError:
+                                pass  # Column might already exist
+                        # Add annotation columns if they don't exist
                         for annotation in annotations:
                             if annotation not in existing_columns:
                                 try:
@@ -409,14 +422,14 @@ class DBManager:
             # Composite primary key on (id, rater)
             if annotation_columns_str:
                 create_query = f"CREATE TABLE IF NOT EXISTS screening \
-(id TEXT, rater TEXT, iteration INTEGER,\
+(id TEXT, rater TEXT, iteration INTEGER, title TEXT,\
 keep_title BOOLEAN, reason_title  TEXT,\
 keep_content BOOLEAN, reason_content TEXT, {annotation_columns_str},\
 title_settled BOOLEAN, content_settled BOOLEAN,\
 PRIMARY KEY(id, rater))"
             else:
                 create_query = f"CREATE TABLE IF NOT EXISTS screening \
-(id TEXT, rater TEXT, iteration INTEGER,\
+(id TEXT, rater TEXT, iteration INTEGER, title TEXT,\
 keep_title BOOLEAN, reason_title  TEXT,\
 keep_content BOOLEAN, reason_content TEXT,\
 title_settled BOOLEAN, content_settled BOOLEAN,\
@@ -437,9 +450,13 @@ PRIMARY KEY(id, rater))"
         reason: str,
         settled: bool = False,
         screening_phase: str="title",
+        title: str = "",
         **annotations: str
     ):
         table_name = "screening"
+        # if there's no table screening, create it
+        if not self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'").fetchone():
+            self.create_screening_table(list(annotations.keys()))
         try:
             # Convert boolean to int for SQLite
             keep_int = 1 if keep else 0
@@ -458,18 +475,18 @@ PRIMARY KEY(id, rater))"
             other_reason_key = f"reason_{other_phase}"
             other_settle_key = f"{other_phase}_settled"
             
-            # Include all columns: id, rater, iteration, keep_title, reason_title, title_settled, keep_content, reason_content, content_settled, annotations
-            columns = ["id", "rater", "iteration", "keep_title", "reason_title", "title_settled", "keep_content", "reason_content", "content_settled"]
+            # Include all columns: id, rater, iteration, title, keep_title, reason_title, title_settled, keep_content, reason_content, content_settled, annotations
+            columns = ["id", "rater", "iteration", "title", "keep_title", "reason_title", "title_settled", "keep_content", "reason_content", "content_settled"]
             if annotation_keys:
                 columns.extend(annotation_keys)
             
             # Build placeholders for VALUES
-            placeholders = ["?", "?", "?", "?", "?", "?", "?", "?", "?"]
+            placeholders = ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?"]
             if annotation_keys:
                 placeholders.extend(["?"] * len(annotation_keys))
             
-            # Build UPDATE clause for ON CONFLICT - only update the current phase columns
-            update_clauses = [f"{keep_key} = ?", f"{reason_key} = ?", f"{settle_key} = ?"]
+            # Build UPDATE clause for ON CONFLICT - update current phase columns and title
+            update_clauses = ["title = ?", f"{keep_key} = ?", f"{reason_key} = ?", f"{settle_key} = ?"]
             if annotation_keys:
                 update_clauses.extend([f"{key} = ?" for key in annotation_keys])
             
@@ -480,6 +497,7 @@ PRIMARY KEY(id, rater))"
                 article_id, 
                 rater, 
                 iteration,
+                title,                                             # title
                 1 if screening_phase == "title" and keep else 0,  # keep_title
                 reason if screening_phase == "title" else "",    # reason_title
                 title_settled_int,                                # title_settled
@@ -490,8 +508,8 @@ PRIMARY KEY(id, rater))"
             if annotation_keys:
                 insert_values.extend([annotations[key] for key in annotation_keys])
             
-            # Update values for ON CONFLICT - only update current phase
-            update_values = [keep_int, reason, title_settled_int if screening_phase == "title" else content_settled_int]
+            # Update values for ON CONFLICT - update title and current phase
+            update_values = [title, keep_int, reason, title_settled_int if screening_phase == "title" else content_settled_int]
             if annotation_keys:
                 update_values.extend([annotations[key] for key in annotation_keys])
             

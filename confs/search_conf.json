@@ -1,0 +1,17 @@
+{
+    "start_year": 2020,
+    "end_year": 2024,
+    "venue_rank_list": [
+        "A*",
+        "A",
+        "B",
+        "C",
+        "D"
+    ],
+    "proxy_key": "",
+    "initial_file": "confs/seed.txt",
+    "db_path": "databases/test.db",
+    "csv_path": "results.csv",
+    "search_method": "semantic_scholar",
+    "annotations": []
+}

@@ -118,7 +118,7 @@ def search_core_table(query: str, table: pd.DataFrame, acronym_search: bool = Fa
 # Example usage
 if __name__ == "__main__":
     # Load the CSV file (works with any CSV structure)
-    df = load_core_table("ranking_tables/core_table2.csv")
+    df = load_core_table("utils/ranking_tables/core_table2.csv")
     
     # Example searches using auto-detected columns
     print("\nExample searches:")

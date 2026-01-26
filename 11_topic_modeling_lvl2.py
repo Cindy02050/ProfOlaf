@@ -30,7 +30,7 @@ from utils.article_llm_analysis.topic_modeling import (
     TOPICGPT_AVAILABLE,
 )
 
-with open("analysis_conf.json", "r") as f:
+with open("confs/analysis_conf.json", "r") as f:
     analysis_conf = json.load(f)
 
 
@@ -229,7 +229,7 @@ def main():
         kwargs['data_file'] = args.data_file
     if args.generation_file:
         kwargs['generation_file'] = args.generation_file
-    
+
     result = topic_modeling_system.execute_step(
         args.pdf_folder,
         args.output_dir,

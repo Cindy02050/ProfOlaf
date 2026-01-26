@@ -1,11 +1,11 @@
 import json
 import click
 from utils.db_management import DBManager, SelectionStage
-from utils.pretty_print_utils import pretty_print, format_color_string, prompt_input
+from utils.cli.pretty_print_utils import pretty_print, format_color_string, prompt_input
 from utils.pipeline.screening import choose_elements
 from utils.pipeline.llm_screening import screen_papers
 
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 @click.command()

@@ -13,11 +13,12 @@ from ..db_management import SelectionStage, ArticleData
 # -------------------------- Checker Functions --------------------------
 
 def get_selected_stage(article):
-    return SelectionStage(article.selected)
+    return SelectionStage(int(article.selected))
 
 def is_correct_article_stage(article: ArticleData, selection_stage: SelectionStage) -> bool:
-    filtered_out = article.keep_title if selection_stage == SelectionStage.TITLE_APPROVED else article.keep_content
-    return not(get_selected_stage(article).value >= selection_stage.value or filtered_out)
+    article_kept = article.keep_title if selection_stage == SelectionStage.TITLE_APPROVED else article.keep_content
+    # if the article is not yet kept and the last stage the article went through was the stage before the current stage
+    return get_selected_stage(article).value == selection_stage.value - 1 and not article_kept
 
 def is_annotations_to_fill(annotation_list: list[str], selection_stage: SelectionStage) -> bool:
     return len(annotation_list) > 0 and\
@@ -112,10 +113,9 @@ def process_article(article, db_manager, iteration, rater, selection_stage, anno
     Process a single article and return the decision made.
     Returns: tuple (decision, reason) where decision is 'y', 'n', 's', or 'b'
     """
-    print(f"\n({i}/{total})")
     title_string = format_color_string(article.title, "magenta", "bold")
     
-    if is_correct_article_stage(article, selected_stage):
+    if not is_correct_article_stage(article, selection_stage):
         pretty_print(f"Skipping Article {title_string}")
         return None, None
     
@@ -159,22 +159,35 @@ def apply_decision(db_manager, article, iteration, rater, decision, reason, scre
             reason=reason, 
             settled=False, 
             screening_phase=screening_phase,
+            title=article.title,
             **annotations
         )
 
-def undo_decision(db_manager, article, iteration, rater, screening_phase: str="title"):
+def undo_decision(db_manager, article, iteration, rater, screening_phase: str="title", annotations: list[str]=[]):
     """
     Undo the previous decision for an article.
     """
+    if screening_phase == "title":
+        keep_arg = "keep_title"
+        reason_arg = "reason_title"
+        settled_arg = "title_settled"
+    else:
+        keep_arg = "keep_content"
+        reason_arg = "reason_content"
+        settled_arg = "content_settled"
+    
+    # Build kwargs dictionary with the appropriate field names based on screening_phase
+    update_kwargs = {
+        keep_arg: False,
+        reason_arg: "",
+        settled_arg: False,
+        **{annotation: "" for annotation in annotations}
+    }
+    
     db_manager.update_screening_data(
-        rater=rater,    
         iteration=iteration, 
         article_id=article.id, 
-        keep=False, 
-        reason="", 
-        settled=False, 
-        screening_phase=screening_phase
-        **{annotation: "" for annotation in annotations}
+        **update_kwargs
     )
 
 def choose_elements(articles, db_manager, iteration, rater, selection_stage: SelectionStage, annotation_list: list[str]): 
@@ -184,14 +197,16 @@ def choose_elements(articles, db_manager, iteration, rater, selection_stage: Sel
     """
     i = 0
     decisions = []  
+    screening_phase = "title" if selection_stage == SelectionStage.TITLE_APPROVED else "content"
     while i < len(articles):
+        print(f"\n({i+1}/{len(articles)})")
         article = articles[i]
         decision, rater_data = process_article(article, db_manager, iteration, rater, selection_stage, annotation_list)
         if decision == 'b':
             if i > 0:
                 prev_index = i - 1
                 prev_article = articles[prev_index]
-                undo_decision(db_manager, prev_article, iteration, rater, screening_phase)
+                undo_decision(db_manager, prev_article, iteration, rater, screening_phase, annotation_list)
                 
                 if decisions and decisions[-1][0] == prev_index:
                     decisions.pop()

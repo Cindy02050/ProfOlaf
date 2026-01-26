@@ -5,7 +5,7 @@ import sys
 
 from ..db_management import DBManager, SelectionStage
 
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 

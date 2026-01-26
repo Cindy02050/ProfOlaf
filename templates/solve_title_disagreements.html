@@ -262,6 +262,23 @@
                         <!-- Completion Message -->
                         <div id="completionSection" class="alert alert-success mt-3" style="display: none;">
                             <i class="fas fa-check-circle"></i> All disagreements have been resolved!
+                            
+                            <!-- Merge Results Back Section -->
+                            <div class="mt-3">
+                                <h6><i class="fas fa-download"></i> Merge Results Back to Initial Database</h6>
+                                <p class="mb-2">Select one of the initial databases to merge all resolved decisions back to:</p>
+                                <div class="mb-2">
+                                    <select class="form-select" id="targetDbSelect">
+                                        <option value="">-- Select target database --</option>
+                                    </select>
+                                </div>
+                                <button type="button" class="btn btn-primary" id="mergeResultsBackBtn">
+                                    <i class="fas fa-code-branch"></i> Merge Results Back
+                                </button>
+                                <div class="alert alert-info mt-2 mb-0" id="mergeResultsInfo" style="display: none;">
+                                    <i class="fas fa-info-circle"></i> <span id="mergeResultsMessage"></span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -408,6 +425,16 @@
                 }
 
                 mergedDbPath = mergeData.merged_db_path;
+                
+                // Populate target database dropdown with initial database paths
+                const targetDbSelect = document.getElementById('targetDbSelect');
+                targetDbSelect.innerHTML = '<option value="">-- Select target database --</option>';
+                dbPaths.forEach((dbPath, index) => {
+                    const option = document.createElement('option');
+                    option.value = dbPath;
+                    option.textContent = dbPath.split(/[/\\]/).pop() + ` (${dbPath})`;
+                    targetDbSelect.appendChild(option);
+                });
 
                 // Now find disagreements from merged database
                 document.getElementById('loadingSpinner').querySelector('p').textContent = 'Finding disagreements...';
@@ -716,6 +743,65 @@
 
         // Initialize remove buttons state
         updateRemoveButtons();
+        
+        // Merge results back button handler
+        document.getElementById('mergeResultsBackBtn').addEventListener('click', function() {
+            const targetDbPath = document.getElementById('targetDbSelect').value;
+            if (!targetDbPath) {
+                alert('Please select a target database');
+                return;
+            }
+            
+            if (!mergedDbPath) {
+                alert('No merged database path available');
+                return;
+            }
+            
+            if (!currentIteration) {
+                alert('No iteration specified');
+                return;
+            }
+            
+            // Disable button
+            const btn = document.getElementById('mergeResultsBackBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Merging...';
+            
+            fetch('/api/workflow/solve_title_disagreements/merge_results_back', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    merged_db_path: mergedDbPath,
+                    target_db_path: targetDbPath,
+                    iteration: currentIteration
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    alert('Error: ' + (data.error || 'Failed to merge results back'));
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-code-branch"></i> Merge Results Back';
+                    return;
+                }
+                
+                // Show success message
+                document.getElementById('mergeResultsMessage').textContent = data.message;
+                document.getElementById('mergeResultsInfo').classList.remove('alert-danger');
+                document.getElementById('mergeResultsInfo').classList.add('alert-success');
+                document.getElementById('mergeResultsInfo').style.display = 'block';
+                
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check"></i> Merged Successfully';
+            })
+            .catch(error => {
+                alert('Error: ' + error.message);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-code-branch"></i> Merge Results Back';
+            });
+        });
     </script>
 </body>
 </html>

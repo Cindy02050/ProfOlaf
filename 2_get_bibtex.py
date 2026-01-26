@@ -7,10 +7,10 @@ from utils.db_management import (
     SelectionStage,
 )
 from utils.pipeline.get_bibtex import process_articles_optimized
-from utils.article_search_method import SearchMethod
+from utils.article_search.article_search_method import SearchMethod
 
 load_dotenv()
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
 def parse_args():
