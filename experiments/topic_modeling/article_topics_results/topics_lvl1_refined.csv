@@ -1,0 +1,11 @@
+Topic,Description
+Security Analysis,"Mentions detecting and analyzing security vulnerabilities and attacks (e.g., Spectre side-channel attacks) using hardware performance counters and machine-learning models."
+Machine Learning,"Mentions applying statistical/ML methods (e.g., random forests, MLPs, RNNs) for classification, detection, evaluation, and performance comparison."
+Data Mining,"Mentions clustering and dataset reduction/cleaning methods (e.g., DBSCAN, dimensionality reduction, representative sample selection)."
+Code Generation,"Includes automated code summarization (generating natural-language summaries from code), a form of generation task evaluated in the document."
+Program Repair,Discusses automated refactoring and repair-style recommendations to address lock-contention performance faults in Java code.
+Benchmarking,"Introduces a new evaluation benchmark (LONG CODEU), task suite, and evaluation metrics for long code understanding."
+Software Maintenance,"Focuses on automating software engineering maintenance tasks, specifically bug report analysis and summarization."
+Code Summarization,"Automatically generates human-readable summaries of source code artifacts (functions, files, packages, repositories), including hierarchical summarization and business-context grounding."
+Green Software Engineering,"Focuses on software energy efficiency, energy consumption measurement, and environmental impact (carbon footprint) of software and AI-generated code."
+Performance Analysis,"Evaluates runtime performance and efficiency characteristics (execution time, resource/energy usage) of generated code across languages and platforms."

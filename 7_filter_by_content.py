@@ -1,62 +1,63 @@
-import argparse
-from utils.db_management import DBManager, SelectionStage
 import json
+import click
+from prompt_toolkit import Application
+from prompt_toolkit.layout import Layout, HSplit
+from prompt_toolkit.widgets import TextArea, Button, Label
+from prompt_toolkit.key_binding import KeyBindings
+from utils.db_management import DBManager, SelectionStage
+from utils.cli.pretty_print_utils import pretty_print, format_color_string, prompt_input
+from utils.pipeline.screening import choose_elements
 
-with open("search_conf.json", "r") as f:
+with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
-def choose_elements(articles, db_manager, iteration):
-    """
-    Choose the elements by abstract and introduction.
-    """
-    updated_data = []
-    for i, article in enumerate(articles):
-        if article.selected >= str(SelectionStage.CONTENT_APPROVED.value) or article.abstract_filtered_out == True:
-            continue
 
-        title = article.title
-        url = article.pub_url
-        preprint = article.eprint_url
-
-        print(f"({i+1}/{len(articles)})")
-        while True:
-            print(f"\nTitle: {title}")
-            print(f"ID: {article.id}")
-            print(f"Url: {url}")
-            print(f"Preprint: {preprint}")
-
-            user_input = input(f"Do you want to keep this element? (y/n/s for skip): ").strip().lower()
-            if user_input == 'y':
-                user_reason = input(f"Please enter the reason for the selection (enter to skip): ").strip()
-                article.selected = SelectionStage.CONTENT_APPROVED   
-                updated_data.append((article.id, article.selected, "selected"))
-                updated_data.append((article.id, user_reason, "content_reason"))
-                break
-            elif user_input == 'n':
-                user_reason = input(f"Please enter the reason for the rejection (enter to skip): ").strip()
-                article.abstract_filtered_out = True
-                updated_data.append((article.id, article.abstract_filtered_out, "abstract_filtered_out"))
-                updated_data.append((article.id, user_reason, "content_reason"))
-                break
-            elif user_input == 's':
-                break
-            else:
-                print("Please enter 'y' for yes or 'n' for no.")
-
-        db_manager.update_batch_iteration_data(iteration, updated_data)
-
-
-def main(iteration, db_path):
+@click.command()
+@click.option('--iteration', type=int, required=True, help='Iteration number')
+@click.option('--db-path', type=str, default=None, help='Database path (defaults to search_conf.json value)')
+@click.option('--rater', type=str, required=True, help='Rater ID')
+@click.option('--llm', type=bool, default=False, help='Use LLM for screening')
+@click.option('--model', type=str, default='gpt-4o', help='Model to use for screening')
+@click.option('--api-key', type=str, default=None, help='API key for screening')
+@click.option('--article_folder', type=str, default=None, help='Folder to store the articles')
+def main(iteration, db_path, rater, llm, model, api_key, article_folder):
+    """Filter articles by content (abstract and introduction) with interactive CLI."""
+    if db_path is None:
+        db_path = search_conf["db_path"]
+    
     db_manager = DBManager(db_path)
     articles = db_manager.get_iteration_data(
         iteration=iteration,
         selected=SelectionStage.TITLE_APPROVED,
     )
-    choose_elements(articles, db_manager, iteration)
-
+    if not llm:
+        choose_elements(
+            articles, 
+            db_manager, 
+            iteration, 
+            rater, 
+            SelectionStage.CONTENT_APPROVED, 
+            search_conf.get("annotations", [])
+        )
+    else:
+        confirm = input(f"Filtering by content with an LLM requires downloading all the PDFs. Are you sure you want to continue? (y/n): ")
+        if confirm == "y":
+            if article_folder is None:
+                print("Please provide a folder to store the articles")
+                sys.exit(1)
+            if not os.path.exists(article_folder):
+                os.makedirs(article_folder)
+            download_pdfs(articles, article_folder)
+            screen_papers(
+                rater,
+                search_conf["topic"],
+                db_path,
+                iteration,
+                "content",
+                article_folder=article_folder,
+                model=model,
+                api_key=api_key
+            )
+    
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Filter by title')
-    parser.add_argument('--iteration', help='iteration number', type=int, required=True)
-    parser.add_argument('--db_path', help='db path', type=str, default=search_conf["db_path"])
-    args = parser.parse_args()
-    main(args.iteration, args.db_path)
+    main()

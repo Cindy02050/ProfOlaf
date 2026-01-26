@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 7: Filter by Content - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .article-card {
+            margin-bottom: 2rem;
+        }
+        .article-card .card-body {
+            display: grid;
+            grid-template-rows: 1fr auto;
+            min-height: 800px;
+            height: 800px;
+        }
+        .article-content {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 200px;
+            flex: 1 1 auto;
+        }
+        .article-info {
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            flex: 1 1 auto;
+            overflow-y: auto;
+            min-height: 200px;
+            display: block;
+            visibility: visible;
+        }
+        .article-title {
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+            display: block;
+            visibility: visible;
+        }
+        .article-details {
+            color: #6c757d;
+            font-size: 0.95rem;
+            margin-bottom: 0.5rem;
+            display: block;
+            visibility: visible;
+        }
+        .article-details div {
+            margin-bottom: 0.5rem;
+        }
+        #articleVenue {
+            display: block;
+            visibility: visible;
+        }
+        .reason-input {
+            margin-top: 1rem;
+        }
+        .decision-buttons {
+            margin-top: 1.5rem;
+        }
+        .article-actions {
+            padding-top: 1.5rem;
+            border-top: 1px solid #dee2e6;
+            background-color: #fff;
+        }
+        .annotations-section {
+            margin-top: 1rem;
+            padding: 1rem;
+            background-color: #f8f9fa;
+            border-radius: 0.5rem;
+            border: 1px solid #dee2e6;
+        }
+        .progress-indicator {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 1rem;
+        }
+        .article-url-section {
+            margin-top: 1rem;
+            padding: 1rem;
+            background-color: #e7f3ff;
+            border-radius: 0.5rem;
+            border: 1px solid #b3d9ff;
+            display: block !important;
+            visibility: visible !important;
+        }
+        .article-url-section a {
+            word-break: break-all;
+            color: #0066cc;
+            font-weight: 500;
+            text-decoration: underline;
+        }
+        .article-url-section a:hover {
+            color: #004499;
+        }
+        .pdf-viewer-container {
+            margin-top: 1.5rem;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            background-color: #f8f9fa;
+            min-height: 600px;
+            height: 600px;
+        }
+        .pdf-viewer-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .pdf-viewer-header {
+            padding: 0.75rem 1rem;
+            background-color: #f0f0f0;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4 mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-11">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h2 class="mb-0">
+                            <i class="fas fa-file-alt"></i> Step 7: Filter by Content
+                        </h2>
+                        <a href="{{ url_for('workflow_stage') }}" class="btn btn-light btn-sm">
+                            <i class="fas fa-arrow-left"></i> Back to Workflow
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        <!-- Workflow Information Cards -->
+                        <div class="row mb-4">
+                            <div class="col-md-3">
+                                <div class="card bg-primary text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info and workflow_info.current_iteration is not none %}
+                                                {{ workflow_info.current_iteration }}
+                                            {% else %}
+                                                N/A
+                                            {% endif %}
+                                        </h3>
+                                        <small>Current Iteration</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-info text-white">
+                                    <div class="card-body text-center">
+                                        <h5 class="mb-0" style="font-size: 1.1rem;">
+                                            {% if workflow_info and workflow_info.current_step %}
+                                                {{ workflow_info.current_step }}
+                                            {% else %}
+                                                No steps performed yet
+                                            {% endif %}
+                                        </h5>
+                                        <small>Last Executed Step</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-warning text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info %}
+                                                {{ workflow_info.new_articles_count or 0 }}
+                                            {% else %}
+                                                0
+                                            {% endif %}
+                                        </h3>
+                                        <small>New Articles (Current Iteration)</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-success text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info %}
+                                                {{ workflow_info.content_approved_count or 0 }}
+                                            {% else %}
+                                                0
+                                            {% endif %}
+                                        </h3>
+                                        <small>Content Approved Papers</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> 
+                            This step allows you to filter articles based on their full content (abstract and introduction). For each article, decide whether to keep it (approve) or reject it, provide a reason, and optionally fill in annotation fields.
+                        </div>
+
+                        <!-- Initial Setup -->
+                        <div id="setupSection">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="iteration" class="form-label">
+                                        <i class="fas fa-list-ol"></i> Iteration <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="number" class="form-control" id="iteration" name="iteration" 
+                                           value="{{ default_iteration }}" min="0" required>
+                                    <div class="form-text">Iteration number to filter articles from</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="rater" class="form-label">
+                                        <i class="fas fa-user"></i> Rater ID <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" class="form-control" id="rater" name="rater" 
+                                           value="{{ default_rater }}" required>
+                                    <div class="form-text">Unique identifier for the rater/user</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Filter Method Selection -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="fas fa-filter"></i> Filtering Method
+                                </label>
+                                <div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="filterMethod" id="manualFilter" value="manual" checked>
+                                        <label class="form-check-label" for="manualFilter">
+                                            Manual Filtering
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="filterMethod" id="llmFilter" value="llm">
+                                        <label class="form-check-label" for="llmFilter">
+                                            LLM Filtering
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- LLM Filtering Options (hidden by default) -->
+                            <div id="llmOptions" style="display: none;">
+                                <!-- PDF Download Section -->
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-download"></i> PDF Download</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <label for="pdfFolder" class="form-label">
+                                                PDF Folder Path <span class="text-danger">*</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="pdfFolder" placeholder="/path/to/pdf/folder" required>
+                                            <div class="form-text">Folder where PDFs will be downloaded (should be empty or contain the PDFs for the articles)</div>
+                                        </div>
+                                        <button type="button" class="btn btn-primary" id="downloadPdfsBtn">
+                                            <i class="fas fa-download"></i> Download PDFs
+                                        </button>
+                                        <div id="downloadStatus" class="mt-2" style="display: none;"></div>
+                                    </div>
+                                </div>
+                                
+                                <!-- LLM Configuration Section -->
+                                <div class="card mb-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-robot"></i> LLM Configuration</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row mb-3">
+                                            <div class="col-md-6">
+                                                <label for="llmModel" class="form-label">
+                                                    Model <span class="text-danger">*</span>
+                                                </label>
+                                                <input type="text" class="form-control" id="llmModel" value="gpt-4o" required>
+                                                <div class="form-text">Model name (e.g., gpt-4o, gpt-3.5-turbo)</div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="apiKeyFile" class="form-label">
+                                                    API Key File
+                                                </label>
+                                                <div class="input-group">
+                                                    <input type="text" class="form-control" id="apiKeyFile" placeholder="path/to/api_key.txt">
+                                                    <input type="file" class="d-none" id="apiKeyFileInput" accept=".txt" onchange="handleApiKeyFileSelect(this)">
+                                                    <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('apiKeyFileInput').click()">
+                                                        <i class="fas fa-folder-open"></i> Browse
+                                                    </button>
+                                                </div>
+                                                <div class="form-text">Select API key file (or leave empty to use OPENAI_API_KEY environment variable)</div>
+                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="topic" class="form-label">
+                                                Topic <span class="text-danger">*</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="topic" value="{{ default_topic }}" required>
+                                            <div class="form-text">Topic for the LLM to focus on while screening</div>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="fillAnnotations" checked>
+                                                <label class="form-check-label" for="fillAnnotations">
+                                                    Fill annotations
+                                                </label>
+                                            </div>
+                                            <div class="form-text">If enabled, the LLM will fill annotation fields defined in the search configuration</div>
+                                        </div>
+                                        
+                                        <!-- Prompts Section -->
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                <i class="fas fa-file-text"></i> Prompts
+                                            </label>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary mb-2" id="loadPromptsBtn">
+                                                <i class="fas fa-sync"></i> Load Default Prompts
+                                            </button>
+                                            <div class="mb-2">
+                                                <label for="systemPrompt" class="form-label small">System Prompt:</label>
+                                                <textarea class="form-control font-monospace" id="systemPrompt" rows="5" style="font-size: 0.85rem;"></textarea>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label for="userPrompt" class="form-label small">User Prompt:</label>
+                                                <textarea class="form-control font-monospace" id="userPrompt" rows="3" style="font-size: 0.85rem;"></textarea>
+                                                <div class="form-text small">Use {title}, {content}, and {topic} as placeholders</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <button type="button" class="btn btn-success" id="runLlmFilterBtn" style="display: none;">
+                                            <i class="fas fa-play"></i> Run LLM Filtering
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-primary" id="loadArticlesBtn">
+                                    <i class="fas fa-search"></i> Load Articles
+                                </button>
+                                <button type="button" class="btn btn-warning" id="skipStepBtn">
+                                    <i class="fas fa-forward"></i> Skip Step
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Article Display Section -->
+                        <div id="articleSection" style="display: none;">
+                            <div class="progress-indicator" id="progressIndicator">
+                                Article <span id="currentIndex">0</span> of <span id="totalArticles">0</span>
+                            </div>
+
+                            <div class="card article-card" id="articleCard">
+                                <div class="card-body">
+                                    <div class="article-content">
+                                        <div class="article-info" id="articleInfo">
+                                            <div class="article-title" id="articleTitle"></div>
+                                            <div class="article-details">
+                                                <div id="articleVenue"></div>
+                                                <div id="articleYear"></div>
+                                                <div id="articleAuthors"></div>
+                                            </div>
+                                            
+                                            <!-- URL Section (more prominent) -->
+                                            <div class="article-url-section" id="articleUrlSection" style="display: none;">
+                                                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                    <div class="flex-grow-1">
+                                                        <strong><i class="fas fa-link"></i> Article URL:</strong>
+                                                        <div class="mt-2">
+                                                            <a href="#" id="articleUrlLink" target="_blank" rel="noopener noreferrer" class="text-break"></a>
+                                                        </div>
+                                                    </div>
+                                                    <button type="button" class="btn btn-sm btn-primary" id="togglePdfViewerBtn" style="display: none;">
+                                                        <i class="fas fa-file-pdf"></i> <span id="pdfToggleText">Show PDF</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- PDF Viewer Section -->
+                                            <div class="pdf-viewer-container" id="pdfViewerContainer" style="display: none;">
+                                                <div class="pdf-viewer-header">
+                                                    <span><i class="fas fa-file-pdf"></i> PDF Viewer</span>
+                                                    <button type="button" class="btn btn-sm btn-secondary" id="closePdfViewerBtn">
+                                                        <i class="fas fa-times"></i> Close
+                                                    </button>
+                                                </div>
+                                                <iframe id="pdfViewer" src="" title="PDF Viewer"></iframe>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="article-actions">
+                                        <div class="reason-input">
+                                            <label for="reasonInput" class="form-label">
+                                                <i class="fas fa-comment"></i> Reason (optional)
+                                            </label>
+                                            <textarea class="form-control" id="reasonInput" rows="3" 
+                                                      placeholder="Enter your reason for approval or rejection (optional)"></textarea>
+                                            <div class="form-text">This will help you remember your thought process in later steps</div>
+                                        </div>
+
+                                        <!-- Annotations Section (only shown when approving) -->
+                                        <div id="annotationsSection" class="annotations-section" style="display: none;">
+                                            <h6 class="mb-3"><i class="fas fa-tags"></i> Annotations</h6>
+                                            <div id="annotationsFields"></div>
+                                        </div>
+
+                                        <div class="decision-buttons d-flex gap-2">
+                                            <button type="button" class="btn btn-success btn-lg flex-fill" id="approveBtn">
+                                                <i class="fas fa-check"></i> Approve (Keep)
+                                            </button>
+                                            <button type="button" class="btn btn-danger btn-lg flex-fill" id="rejectBtn">
+                                                <i class="fas fa-times"></i> Reject
+                                            </button>
+                                            <button type="button" class="btn btn-secondary btn-lg" id="skipArticleBtn">
+                                                <i class="fas fa-forward"></i> Skip
+                                            </button>
+                                        </div>
+
+                                        <div class="d-flex justify-content-between mt-3">
+                                            <button type="button" class="btn btn-outline-primary" id="prevBtn" disabled>
+                                                <i class="fas fa-chevron-left"></i> Previous
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary" id="nextBtn">
+                                                Next <i class="fas fa-chevron-right"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-success mt-3" id="saveAlert" style="display: none;">
+                                <i class="fas fa-check-circle"></i> <span id="saveMessage"></span>
+                            </div>
+                        </div>
+
+                        <!-- Loading Spinner -->
+                        <div id="loadingSpinner" style="display: none;" class="text-center my-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading articles...</p>
+                        </div>
+
+                        <!-- Error Alert -->
+                        <div class="alert alert-danger mt-3" id="errorAlert" style="display: none;">
+                            <i class="fas fa-exclamation-circle"></i> <span id="errorMessage"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let articles = [];
+        let currentArticleIndex = 0;
+        let currentIteration = null;
+        const annotationFields = {{ annotations | tojson }};
+        let currentAnnotations = {};
+        let currentPdfUrl = '';
+        let currentPdfUrlRequiresNewWindow = false; // For URLs that can't be embedded (X-Frame-Options)
+
+        // Handle filter method change
+        document.querySelectorAll('input[name="filterMethod"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                const llmOptions = document.getElementById('llmOptions');
+                const loadArticlesBtn = document.getElementById('loadArticlesBtn');
+                const runLlmFilterBtn = document.getElementById('runLlmFilterBtn');
+                
+                if (this.value === 'llm') {
+                    llmOptions.style.display = 'block';
+                    loadArticlesBtn.style.display = 'none';
+                    if (runLlmFilterBtn) {
+                        runLlmFilterBtn.style.display = 'inline-block';
+                    }
+                    loadDefaultPrompts();
+                } else {
+                    llmOptions.style.display = 'none';
+                    loadArticlesBtn.style.display = 'inline-block';
+                    if (runLlmFilterBtn) {
+                        runLlmFilterBtn.style.display = 'none';
+                    }
+                }
+            });
+        });
+
+        // Load default prompts
+        function loadDefaultPrompts() {
+            fetch('/api/workflow/filter_by_content/prompts')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('systemPrompt').value = data.system_prompt || '';
+                        document.getElementById('userPrompt').value = data.user_prompt || '';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading prompts:', error);
+                });
+        }
+
+        const loadPromptsBtn = document.getElementById('loadPromptsBtn');
+        if (loadPromptsBtn) {
+            loadPromptsBtn.addEventListener('click', loadDefaultPrompts);
+        }
+
+        // Handle API key file selection
+        function handleApiKeyFileSelect(fileInput) {
+            if (fileInput.files && fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                // Note: Browsers only provide filename for security reasons
+                // User may need to adjust the path manually if needed
+                document.getElementById('apiKeyFile').value = file.name;
+            }
+        }
+
+        document.getElementById('loadArticlesBtn').addEventListener('click', loadArticles);
+        const downloadPdfsBtn = document.getElementById('downloadPdfsBtn');
+        if (downloadPdfsBtn) {
+            downloadPdfsBtn.addEventListener('click', downloadPdfs);
+        }
+        const runLlmFilterBtn = document.getElementById('runLlmFilterBtn');
+        if (runLlmFilterBtn) {
+            runLlmFilterBtn.addEventListener('click', runLlmFiltering);
+        }
+        document.getElementById('approveBtn').addEventListener('click', () => handleDecision('approve'));
+        document.getElementById('rejectBtn').addEventListener('click', () => handleDecision('reject'));
+        document.getElementById('skipArticleBtn').addEventListener('click', skipArticle);
+        document.getElementById('prevBtn').addEventListener('click', previousArticle);
+        document.getElementById('nextBtn').addEventListener('click', nextArticle);
+
+        function loadArticles() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            if (isNaN(iteration) || iteration < 0) {
+                showError('Please enter a valid iteration number');
+                return;
+            }
+
+            currentIteration = iteration;
+            
+            // Show loading spinner
+            document.getElementById('loadingSpinner').style.display = 'block';
+            document.getElementById('setupSection').style.display = 'none';
+            document.getElementById('articleSection').style.display = 'none';
+            document.getElementById('errorAlert').style.display = 'none';
+
+            fetch(`/api/workflow/filter_by_content/articles?iteration=${iteration}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('loadingSpinner').style.display = 'none';
+                    
+                    if (!data.success) {
+                        showError(data.error || 'Failed to load articles');
+                        document.getElementById('setupSection').style.display = 'block';
+                        return;
+                    }
+
+                    articles = data.articles || [];
+                    
+                    if (articles.length === 0) {
+                        showError('No articles found for this iteration that need content filtering. All articles may have already been processed.');
+                        document.getElementById('setupSection').style.display = 'block';
+                        return;
+                    }
+
+                    currentArticleIndex = 0;
+                    displayArticle();
+                    document.getElementById('articleSection').style.display = 'block';
+                })
+                .catch(error => {
+                    document.getElementById('loadingSpinner').style.display = 'none';
+                    showError('Error loading articles: ' + error.message);
+                    document.getElementById('setupSection').style.display = 'block';
+                });
+        }
+
+        function displayArticle() {
+            if (articles.length === 0 || currentArticleIndex < 0 || currentArticleIndex >= articles.length) {
+                console.error('Cannot display article: invalid index or no articles');
+                return;
+            }
+
+            const article = articles[currentArticleIndex];
+            
+            // Update progress indicator
+            const currentIndexEl = document.getElementById('currentIndex');
+            const totalArticlesEl = document.getElementById('totalArticles');
+            if (currentIndexEl) currentIndexEl.textContent = currentArticleIndex + 1;
+            if (totalArticlesEl) totalArticlesEl.textContent = articles.length;
+
+            // Display article information (exact same pattern as Step 5)
+            const titleEl = document.getElementById('articleTitle');
+            if (titleEl) {
+                titleEl.textContent = article.title || '(No title)';
+                titleEl.style.display = 'block';
+                titleEl.style.visibility = 'visible';
+            }
+            
+            let detailsHtml = '';
+            if (article.venue) {
+                detailsHtml += `<div><strong>Venue:</strong> ${escapeHtml(article.venue)}</div>`;
+            }
+            if (article.pub_year) {
+                detailsHtml += `<div><strong>Year:</strong> ${escapeHtml(article.pub_year)}</div>`;
+            }
+            if (article.authors) {
+                // Try to parse authors if it's JSON, otherwise use as-is
+                let authorsText = article.authors;
+                try {
+                    const authorsJson = JSON.parse(article.authors);
+                    if (Array.isArray(authorsJson)) {
+                        authorsText = authorsJson.map(a => a.name || a).join(', ');
+                    }
+                } catch (e) {
+                    // Not JSON, use as-is
+                    authorsText = article.authors;
+                }
+                detailsHtml += `<div><strong>Authors:</strong> ${escapeHtml(authorsText)}</div>`;
+            }
+            
+            const venueEl = document.getElementById('articleVenue');
+            if (venueEl) {
+                venueEl.innerHTML = detailsHtml;
+                venueEl.style.display = 'block';
+                venueEl.style.visibility = 'visible';
+            }
+            
+            // Handle URL display and PDF viewer
+            const urlSection = document.getElementById('articleUrlSection');
+            const urlLink = document.getElementById('articleUrlLink');
+            const togglePdfBtn = document.getElementById('togglePdfViewerBtn');
+            const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+            const pdfViewer = document.getElementById('pdfViewer');
+            
+            // Always reset PDF viewer and URL section first
+            if (pdfViewerContainer) {
+                pdfViewerContainer.style.display = 'none';
+            }
+            if (pdfViewer) {
+                pdfViewer.src = '';
+            }
+            if (urlSection) {
+                urlSection.style.display = 'none';
+            }
+            if (togglePdfBtn) {
+                togglePdfBtn.style.display = 'none';
+            }
+            if (urlLink) {
+                urlLink.href = '#';
+                urlLink.textContent = '';
+            }
+            // Reset the new window flag
+            currentPdfUrlRequiresNewWindow = false;
+            currentPdfUrl = '';
+            
+            if (!urlSection || !urlLink) {
+                console.error('URL section elements not found!');
+            }
+            
+            let articleUrl = '';
+            let pdfUrl = '';
+            
+            // Check both eprint_url and pub_url (handle empty strings and null/undefined)
+            const eprintUrl = (article.eprint_url && typeof article.eprint_url === 'string') ? article.eprint_url.trim() : '';
+            const pubUrl = (article.pub_url && typeof article.pub_url === 'string') ? article.pub_url.trim() : '';
+            
+            if (eprintUrl && eprintUrl.length > 0) {
+                articleUrl = eprintUrl;
+            } else if (pubUrl && pubUrl.length > 0) {
+                articleUrl = pubUrl;
+            }
+            
+            console.log('[displayArticle] Article URLs - eprint_url:', eprintUrl, 'pub_url:', pubUrl, 'final articleUrl:', articleUrl);
+            console.log('[displayArticle] Full article object:', article);
+            
+            if (articleUrl && articleUrl.length > 0) {
+                if (urlSection && urlLink) {
+                    console.log('[displayArticle] Setting URL section - original URL:', articleUrl);
+                    // Show URL section
+                    urlSection.style.display = 'block';
+                    urlSection.style.visibility = 'visible';
+                    urlLink.href = articleUrl;
+                    urlLink.textContent = articleUrl;
+                    console.log('[displayArticle] URL section displayed, link href:', urlLink.href, 'link text:', urlLink.textContent);
+                    
+                    // Convert URL to PDF format if possible
+                    console.log('[displayArticle] Calling convertToPdfUrl with:', articleUrl);
+                    
+                    // Check if it's a Semantic Scholar URL before conversion
+                    const isSemanticScholar = articleUrl.includes('semanticscholar.org');
+                    if (isSemanticScholar) {
+                        currentPdfUrlRequiresNewWindow = true;
+                        console.log('[displayArticle] Semantic Scholar URL detected - will open in new window');
+                    }
+                    
+                    pdfUrl = convertToPdfUrl(articleUrl);
+                    console.log('[displayArticle] convertToPdfUrl returned:', pdfUrl);
+                    
+                    if (pdfUrl && togglePdfBtn) {
+                        // Show PDF toggle button
+                        console.log('[displayArticle] Showing PDF button with PDF URL:', pdfUrl);
+                        console.log('[displayArticle] PDF URL requires new window:', currentPdfUrlRequiresNewWindow);
+                        togglePdfBtn.style.display = 'inline-block';
+                        togglePdfBtn.style.visibility = 'visible';
+                        currentPdfUrl = pdfUrl;
+                        // Update button text if it requires new window
+                        const pdfToggleText = document.getElementById('pdfToggleText');
+                        if (pdfToggleText) {
+                            if (currentPdfUrlRequiresNewWindow) {
+                                pdfToggleText.textContent = 'Open PDF';
+                            } else {
+                                pdfToggleText.textContent = 'Show PDF';
+                            }
+                        }
+                        console.log('[displayArticle] currentPdfUrl set to:', currentPdfUrl);
+                    } else {
+                        currentPdfUrlRequiresNewWindow = false;
+                        console.log('[displayArticle] No PDF URL or button element. pdfUrl:', pdfUrl, 'togglePdfBtn:', togglePdfBtn);
+                        if (togglePdfBtn) {
+                            togglePdfBtn.style.display = 'none';
+                            console.log('[displayArticle] Hiding PDF button');
+                        }
+                        currentPdfUrl = '';
+                    }
+                } else {
+                    console.error('[displayArticle] URL section elements not found!', {urlSection, urlLink});
+                }
+            } else {
+                // No URL found - section is already hidden and cleared above
+                console.log('[displayArticle] No article URL found. URL section already hidden.');
+                console.log('[displayArticle] eprint_url:', eprintUrl, 'pub_url:', pubUrl);
+            }
+            
+            // Ensure article-info is visible
+            const articleInfoEl = document.getElementById('articleInfo');
+            if (articleInfoEl) {
+                articleInfoEl.style.display = 'block';
+                articleInfoEl.style.visibility = 'visible';
+            }
+            
+            // Clear and set reason input
+            document.getElementById('reasonInput').value = article.content_reason || '';
+            
+            // Load annotations if they exist
+            currentAnnotations = article.annotations || {};
+            updateAnnotationsFields();
+            
+            // Update navigation buttons
+            document.getElementById('prevBtn').disabled = currentArticleIndex === 0;
+            document.getElementById('nextBtn').disabled = currentArticleIndex === articles.length - 1;
+            
+            // Hide save alert
+            document.getElementById('saveAlert').style.display = 'none';
+            
+            // Close PDF viewer if open (will reopen if user clicks the button)
+            const pdfToggleText = document.getElementById('pdfToggleText');
+            if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
+                pdfViewerContainer.style.display = 'none';
+                if (pdfViewer) pdfViewer.src = '';
+                if (pdfToggleText) pdfToggleText.textContent = 'Show PDF';
+            }
+        }
+
+        function updateAnnotationsFields() {
+            const annotationsSection = document.getElementById('annotationsSection');
+            const annotationsFieldsDiv = document.getElementById('annotationsFields');
+            
+            if (annotationFields && annotationFields.length > 0) {
+                annotationsSection.style.display = 'block';
+                annotationsFieldsDiv.innerHTML = '';
+                
+                annotationFields.forEach(annotation => {
+                    const fieldDiv = document.createElement('div');
+                    fieldDiv.className = 'mb-3';
+                    
+                    const label = document.createElement('label');
+                    label.className = 'form-label';
+                    label.textContent = annotation;
+                    label.setAttribute('for', `annotation_${annotation}`);
+                    
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'form-control annotation-input';
+                    input.id = `annotation_${annotation}`;
+                    input.name = annotation;
+                    input.value = currentAnnotations[annotation] || '';
+                    input.placeholder = `Enter ${annotation}`;
+                    
+                    fieldDiv.appendChild(label);
+                    fieldDiv.appendChild(input);
+                    annotationsFieldsDiv.appendChild(fieldDiv);
+                });
+            } else {
+                annotationsSection.style.display = 'none';
+            }
+        }
+
+        function handleDecision(decision) {
+            if (articles.length === 0 || currentArticleIndex < 0 || currentArticleIndex >= articles.length) {
+                return;
+            }
+
+            const article = articles[currentArticleIndex];
+            
+            // Skip if article has no ID
+            if (!article.id) {
+                alert('This article has no ID and will be skipped.');
+                currentArticleIndex++;
+                if (currentArticleIndex >= articles.length) {
+                    showCompletionMessage();
+                } else {
+                    displayArticle();
+                }
+                return;
+            }
+
+            const reason = document.getElementById('reasonInput').value.trim();
+            
+            // Collect annotations if approving and annotations exist
+            let annotationsData = {};
+            if (decision === 'approve' && annotationFields && annotationFields.length > 0) {
+                annotationFields.forEach(annotation => {
+                    const input = document.getElementById(`annotation_${annotation}`);
+                    if (input) {
+                        const value = input.value.trim();
+                        if (value) {
+                            annotationsData[annotation] = value;
+                        }
+                    }
+                });
+            }
+
+            // Disable buttons during save
+            document.getElementById('approveBtn').disabled = true;
+            document.getElementById('rejectBtn').disabled = true;
+            document.getElementById('skipArticleBtn').disabled = true;
+
+            const rater = document.getElementById('rater').value.trim();
+            if (!rater) {
+                showError('Rater ID is required');
+                document.getElementById('approveBtn').disabled = false;
+                document.getElementById('rejectBtn').disabled = false;
+                document.getElementById('skipArticleBtn').disabled = false;
+                return;
+            }
+
+            fetch('/api/workflow/filter_by_content/save_result', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    article_id: article.id,
+                    decision: decision,
+                    reason: reason,
+                    annotations: annotationsData,
+                    iteration: currentIteration,
+                    rater: rater
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Re-enable buttons
+                document.getElementById('approveBtn').disabled = false;
+                document.getElementById('rejectBtn').disabled = false;
+                document.getElementById('skipArticleBtn').disabled = false;
+
+                if (!data.success) {
+                    showError(data.error || 'Failed to save decision');
+                    return;
+                }
+
+                // Show success message
+                const decisionText = decision === 'approve' ? 'approved' : 'rejected';
+                document.getElementById('saveMessage').textContent = `Article ${decisionText} successfully!`;
+                document.getElementById('saveAlert').classList.remove('alert-danger');
+                document.getElementById('saveAlert').classList.add('alert-success');
+                document.getElementById('saveAlert').style.display = 'block';
+
+                // Remove article from list (it's been processed)
+                articles.splice(currentArticleIndex, 1);
+
+                // Adjust index if needed
+                if (currentArticleIndex >= articles.length && articles.length > 0) {
+                    currentArticleIndex = articles.length - 1;
+                }
+
+                // Move to next article or finish
+                if (articles.length > 0) {
+                    if (currentArticleIndex >= articles.length) {
+                        currentArticleIndex = articles.length - 1;
+                    }
+                    displayArticle();
+                } else {
+                    // All articles processed
+                    document.getElementById('articleSection').style.display = 'none';
+                    showSuccess('All articles have been processed!');
+                }
+            })
+            .catch(error => {
+                // Re-enable buttons
+                document.getElementById('approveBtn').disabled = false;
+                document.getElementById('rejectBtn').disabled = false;
+                document.getElementById('skipArticleBtn').disabled = false;
+                showError('Error saving decision: ' + error.message);
+            });
+        }
+
+        function skipArticle() {
+            nextArticle();
+        }
+
+        function previousArticle() {
+            if (currentArticleIndex > 0) {
+                currentArticleIndex--;
+                displayArticle();
+            }
+        }
+
+        function nextArticle() {
+            if (currentArticleIndex < articles.length - 1) {
+                currentArticleIndex++;
+                displayArticle();
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorAlert').style.display = 'block';
+            document.getElementById('saveAlert').style.display = 'none';
+        }
+
+        function showSuccess(message) {
+            document.getElementById('saveMessage').textContent = message;
+            document.getElementById('saveAlert').classList.remove('alert-danger');
+            document.getElementById('saveAlert').classList.add('alert-success');
+            document.getElementById('saveAlert').style.display = 'block';
+            document.getElementById('errorAlert').style.display = 'none';
+        }
+
+        // Download PDFs
+        function downloadPdfs() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            const pdfFolder = document.getElementById('pdfFolder').value.trim();
+
+            if (isNaN(iteration) || iteration < 0) {
+                showError('Please enter a valid iteration number');
+                return;
+            }
+
+            if (!pdfFolder) {
+                showError('Please enter a PDF folder path');
+                return;
+            }
+
+            const downloadBtn = document.getElementById('downloadPdfsBtn');
+            const downloadStatus = document.getElementById('downloadStatus');
+            downloadBtn.disabled = true;
+            downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
+            downloadStatus.style.display = 'block';
+            downloadStatus.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle"></i> Downloading PDFs, please wait...</div>';
+
+            // Store pdfFolder for use in verification function
+            window.currentPdfFolder = pdfFolder;
+
+            fetch('/api/workflow/filter_by_content/download_pdfs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    iteration: iteration,
+                    pdf_folder: pdfFolder
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                downloadBtn.disabled = false;
+                downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDFs';
+                
+                if (!data.success) {
+                    downloadStatus.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ${data.error || 'Failed to download PDFs'}</div>`;
+                    return;
+                }
+
+                let statusHtml = `<div class="alert alert-${data.failed_count > 0 ? 'warning' : 'success'}"><i class="fas fa-${data.failed_count > 0 ? 'exclamation-triangle' : 'check-circle'}"></i> ${data.message}</div>`;
+                
+                // Show failed downloads if any
+                if (data.failed_downloads && data.failed_downloads.length > 0) {
+                    statusHtml += `
+                        <div class="mt-3">
+                            <h6><i class="fas fa-exclamation-triangle"></i> Failed Downloads - Manual Download Required</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered">
+                                    <thead>
+                                        <tr>
+                                            <th>Article ID</th>
+                                            <th>Title</th>
+                                            <th>URL</th>
+                                            <th>Expected Filename</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                    `;
+                    data.failed_downloads.forEach((failed, index) => {
+                        statusHtml += `
+                            <tr id="failed-row-${index}">
+                                <td><code>${escapeHtml(failed.article_id)}</code></td>
+                                <td>${escapeHtml(failed.title)}</td>
+                                <td><a href="${escapeHtml(failed.url)}" target="_blank" class="btn btn-sm btn-link p-0">${escapeHtml(failed.url)} <i class="fas fa-external-link-alt"></i></a></td>
+                                <td><code>${escapeHtml(failed.expected_filename)}</code></td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="verifyManualDownload('${escapeHtml(failed.article_id)}', '${escapeHtml(pdfFolder)}', ${index})">
+                                        <i class="fas fa-check"></i> Verify Download
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    statusHtml += `
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="alert alert-info mt-2">
+                                <i class="fas fa-info-circle"></i> 
+                                <strong>Instructions:</strong> 
+                                <ol class="mb-0">
+                                    <li>Click on the URL to open the article in a new tab</li>
+                                    <li>Manually download the PDF</li>
+                                    <li>Save it as <code>[Article ID].pdf</code> in the folder: <code>${escapeHtml(pdfFolder)}</code></li>
+                                    <li>Click "Verify Download" to confirm the file exists</li>
+                                </ol>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                downloadStatus.innerHTML = statusHtml;
+            })
+            .catch(error => {
+                downloadBtn.disabled = false;
+                downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDFs';
+                downloadStatus.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Error downloading PDFs: ${error.message}</div>`;
+            });
+        }
+
+        // Run LLM filtering
+        function runLlmFiltering() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            const rater = document.getElementById('rater').value.trim();
+            const model = document.getElementById('llmModel').value.trim();
+            const apiKeyFile = document.getElementById('apiKeyFile').value.trim();
+            const pdfFolder = document.getElementById('pdfFolder').value.trim();
+            const topic = document.getElementById('topic').value.trim();
+            const systemPrompt = document.getElementById('systemPrompt').value;
+            const userPrompt = document.getElementById('userPrompt').value;
+
+            if (isNaN(iteration) || iteration < 0) {
+                showError('Please enter a valid iteration number');
+                return;
+            }
+
+            if (!rater) {
+                showError('Rater ID is required');
+                return;
+            }
+
+            if (!model) {
+                showError('Model name is required');
+                return;
+            }
+
+            if (!pdfFolder) {
+                showError('PDF folder path is required');
+                return;
+            }
+
+            if (!topic) {
+                showError('Topic is required');
+                return;
+            }
+
+            if (!systemPrompt || !userPrompt) {
+                showError('Both system and user prompts are required');
+                return;
+            }
+
+            currentIteration = iteration;
+
+            // Show loading spinner
+            document.getElementById('loadingSpinner').style.display = 'block';
+            document.getElementById('setupSection').style.display = 'none';
+            document.getElementById('errorAlert').style.display = 'none';
+
+            // Use FormData to support file upload
+            const formData = new FormData();
+            formData.append('iteration', iteration);
+            formData.append('rater', rater);
+            formData.append('model', model);
+            formData.append('pdf_folder', pdfFolder);
+            formData.append('topic', topic);
+            formData.append('system_prompt', systemPrompt);
+            formData.append('user_prompt', userPrompt);
+            formData.append('fill_annotations', document.getElementById('fillAnnotations').checked ? 'true' : 'false');
+            
+            // Handle API key file upload
+            const apiKeyFileInput = document.getElementById('apiKeyFileInput');
+            if (apiKeyFileInput && apiKeyFileInput.files && apiKeyFileInput.files.length > 0) {
+                formData.append('api_key_file', apiKeyFileInput.files[0]);
+            } else if (apiKeyFile.trim()) {
+                // If user typed a path manually, send it as form data
+                formData.append('api_key_file_path', apiKeyFile.trim());
+            }
+
+            fetch('/api/workflow/filter_by_content/run_llm_filtering', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                document.getElementById('setupSection').style.display = 'block';
+
+                if (!data.success) {
+                    showError(data.error || 'Failed to run LLM filtering');
+                    return;
+                }
+
+                showSuccess(`LLM filtering completed! Processed ${data.processed_count || 0} article(s).`);
+                // Optionally reload articles to see the results
+                setTimeout(() => {
+                    document.getElementById('manualFilter').checked = true;
+                    document.getElementById('llmOptions').style.display = 'none';
+                    document.getElementById('loadArticlesBtn').style.display = 'inline-block';
+                    const runLlmFilterBtn = document.getElementById('runLlmFilterBtn');
+                    if (runLlmFilterBtn) {
+                        runLlmFilterBtn.style.display = 'none';
+                    }
+                }, 2000);
+            })
+            .catch(error => {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                document.getElementById('setupSection').style.display = 'block';
+                showError('Error running LLM filtering: ' + error.message);
+            });
+        }
+
+        function showCompletionMessage() {
+            document.getElementById('articleSection').style.display = 'none';
+            showSuccess('All articles have been processed!');
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Verify manual download
+        function verifyManualDownload(articleId, pdfFolder, rowIndex) {
+            fetch('/api/workflow/filter_by_content/verify_pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    article_id: articleId,
+                    pdf_folder: pdfFolder
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const row = document.getElementById(`failed-row-${rowIndex}`);
+                if (!row) return;
+                
+                if (data.success && data.exists && data.valid) {
+                    // File exists and is valid - mark as verified
+                    row.classList.remove('table-warning');
+                    row.classList.add('table-success');
+                    const verifyBtn = row.querySelector('button');
+                    if (verifyBtn) {
+                        verifyBtn.disabled = true;
+                        verifyBtn.innerHTML = '<i class="fas fa-check-circle"></i> Verified';
+                        verifyBtn.classList.remove('btn-primary');
+                        verifyBtn.classList.add('btn-success');
+                    }
+                } else if (data.success && data.exists && !data.valid) {
+                    alert(`File ${articleId}.pdf exists but is not a valid PDF. Please ensure it's a valid PDF file.`);
+                } else {
+                    alert(`File ${articleId}.pdf not found. Please ensure it's saved correctly as ${articleId}.pdf in the folder: ${pdfFolder}`);
+                }
+            })
+            .catch(error => {
+                alert('Error verifying download: ' + error.message);
+            });
+        }
+
+        // Convert URL to PDF format for viewing
+        function convertToPdfUrl(url) {
+            console.log('[convertToPdfUrl] Called with URL:', url);
+            if (!url) {
+                console.log('[convertToPdfUrl] No URL provided, returning null');
+                return null;
+            }
+            
+            try {
+                const urlObj = new URL(url);
+                console.log('[convertToPdfUrl] Parsed URL:', {
+                    hostname: urlObj.hostname,
+                    pathname: urlObj.pathname,
+                    fullUrl: url
+                });
+                
+                // Handle arXiv URLs
+                if (urlObj.hostname.includes('arxiv.org')) {
+                    console.log('[convertToPdfUrl] Detected arXiv URL');
+                    // Convert /abs/ or /html/ to /pdf/
+                    if (urlObj.pathname.startsWith('/abs/')) {
+                        const pdfUrl = url.replace('/abs/', '/pdf/') + '.pdf';
+                        console.log('[convertToPdfUrl] Converted arXiv /abs/ to PDF:', pdfUrl);
+                        return pdfUrl;
+                    } else if (urlObj.pathname.startsWith('/html/')) {
+                        const pdfUrl = url.replace('/html/', '/pdf/') + '.pdf';
+                        console.log('[convertToPdfUrl] Converted arXiv /html/ to PDF:', pdfUrl);
+                        return pdfUrl;
+                    } else if (urlObj.pathname.startsWith('/pdf/')) {
+                        // Already a PDF URL
+                        let pdfUrl = url;
+                        if (!urlObj.pathname.endsWith('.pdf')) {
+                            pdfUrl = url + '.pdf';
+                        }
+                        console.log('[convertToPdfUrl] Already arXiv PDF URL, returning:', pdfUrl);
+                        return pdfUrl;
+                    }
+                }
+                
+                // Handle Semantic Scholar URLs
+                // Note: Semantic Scholar has X-Frame-Options that prevents iframe embedding
+                // The calling code will detect this and open in a new window instead
+                if (urlObj.hostname.includes('semanticscholar.org')) {
+                    console.log('[convertToPdfUrl] Detected Semantic Scholar URL');
+                    console.log('[convertToPdfUrl] Pathname:', urlObj.pathname);
+                    // Replace "paper" with "reader" to access PDF directly
+                    if (urlObj.pathname.includes('/paper/')) {
+                        const pdfUrl = url.replace('/paper/', '/reader/');
+                        console.log('[convertToPdfUrl] Converted Semantic Scholar /paper/ to /reader/:', pdfUrl);
+                        return pdfUrl;
+                    }
+                    // If already using reader or pdf, return as is
+                    if (urlObj.pathname.includes('/reader/') || urlObj.pathname.includes('/pdf/')) {
+                        console.log('[convertToPdfUrl] Already Semantic Scholar reader/PDF URL, returning as-is');
+                        return url;
+                    }
+                    console.log('[convertToPdfUrl] Semantic Scholar URL but no /paper/ found in pathname');
+                }
+                
+                // If URL already ends with .pdf, return as is
+                if (url.toLowerCase().endsWith('.pdf')) {
+                    console.log('[convertToPdfUrl] URL already ends with .pdf, returning as-is');
+                    return url;
+                }
+                
+                // For other URLs, try appending .pdf (might work for some sites)
+                // But only if it doesn't already have an extension
+                if (!url.match(/\.[a-z]{2,4}$/i)) {
+                    const pdfUrl = url + '.pdf';
+                    console.log('[convertToPdfUrl] No extension found, trying to append .pdf:', pdfUrl);
+                    return pdfUrl;
+                }
+                
+                // Use Google Docs viewer or Mozilla PDF.js viewer for other PDFs
+                // First check if URL points to a PDF
+                console.log('[convertToPdfUrl] No conversion found, returning null');
+                return null;
+            } catch (e) {
+                // Invalid URL, return null
+                console.error('[convertToPdfUrl] Error parsing URL:', e);
+                return null;
+            }
+        }
+
+        // PDF Viewer Toggle Button - use different variable names to avoid conflicts
+        const togglePdfBtnEl = document.getElementById('togglePdfViewerBtn');
+        if (togglePdfBtnEl) {
+            togglePdfBtnEl.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                console.log('[PDF Button] Clicked. currentPdfUrl:', currentPdfUrl);
+                console.log('[PDF Button] currentPdfUrlRequiresNewWindow:', currentPdfUrlRequiresNewWindow);
+                
+                // If URL requires new window (e.g., Semantic Scholar with X-Frame-Options), open in new tab
+                if (currentPdfUrlRequiresNewWindow && currentPdfUrl) {
+                    console.log('[PDF Button] Opening PDF in new window:', currentPdfUrl);
+                    const newWindow = window.open(currentPdfUrl, '_blank', 'noopener,noreferrer');
+                    if (!newWindow) {
+                        console.error('[PDF Button] Popup blocked. Please allow popups for this site.');
+                        alert('Please allow popups for this site to open the PDF in a new tab.');
+                    }
+                    return false;
+                }
+                
+                const containerEl = document.getElementById('pdfViewerContainer');
+                const viewerEl = document.getElementById('pdfViewer');
+                const toggleTextEl = document.getElementById('pdfToggleText');
+                
+                if (containerEl && viewerEl && toggleTextEl) {
+                    if (containerEl.style.display === 'none' || containerEl.style.display === '') {
+                        // Show PDF viewer
+                        if (currentPdfUrl) {
+                            console.log('[PDF Button] Loading PDF in iframe:', currentPdfUrl);
+                            viewerEl.src = currentPdfUrl;
+                            containerEl.style.display = 'block';
+                            toggleTextEl.textContent = 'Hide PDF';
+                        }
+                    } else {
+                        // Hide PDF viewer
+                        containerEl.style.display = 'none';
+                        viewerEl.src = '';
+                        toggleTextEl.textContent = 'Show PDF';
+                    }
+                }
+                return false;
+            });
+        }
+
+        // Close PDF Viewer Button
+        const closePdfBtnEl = document.getElementById('closePdfViewerBtn');
+        if (closePdfBtnEl) {
+            closePdfBtnEl.addEventListener('click', function() {
+                const containerEl = document.getElementById('pdfViewerContainer');
+                const viewerEl = document.getElementById('pdfViewer');
+                const toggleTextEl = document.getElementById('pdfToggleText');
+                
+                if (containerEl && viewerEl && toggleTextEl) {
+                    containerEl.style.display = 'none';
+                    viewerEl.src = '';
+                    toggleTextEl.textContent = 'Show PDF';
+                }
+            });
+        }
+
+        // Skip step button
+        document.getElementById('skipStepBtn').addEventListener('click', function() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            if (confirm('Are you sure you want to skip Step 7: Filter by Content? This will mark it as skipped and move to the next step.')) {
+                fetch('/api/workflow/skip_step', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        step_name: 'Step 7: Filter by Content',
+                        iteration: iteration || null
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Step skipped successfully!');
+                        window.location.href = '/workflow';
+                    } else {
+                        alert('Error: ' + (data.error || 'Failed to skip step'));
+                    }
+                })
+                .catch(error => {
+                    alert('Error: ' + error.message);
+                });
+            }
+        });
+
+        // Annotations section visibility is controlled by updateAnnotationsFields()
+        // It will be shown if annotations exist in the config
+    </script>
+</body>
+</html>
+

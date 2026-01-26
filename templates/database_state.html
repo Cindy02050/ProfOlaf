@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database State - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4 mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-11">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h2 class="mb-0">
+                            <i class="fas fa-database"></i> Database State
+                        </h2>
+                        <div>
+                            <button type="button" class="btn btn-light btn-sm me-2" data-bs-toggle="modal" data-bs-target="#loadDatabaseModal">
+                                <i class="fas fa-folder-open"></i> Load Database
+                            </button>
+                            <a href="{{ url_for('index') }}" class="btn btn-light btn-sm">
+                                <i class="fas fa-arrow-left"></i> Back to Dashboard
+                            </a>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        {% if db_error %}
+                            <div class="alert alert-danger">
+                                <i class="fas fa-exclamation-triangle"></i> 
+                                <strong>Error accessing database:</strong> {{ db_error }}
+                            </div>
+                        {% elif db_exists and db_stats %}
+                            <div class="alert alert-success">
+                                <i class="fas fa-check-circle"></i> 
+                                <strong>Database found:</strong> <code>{{ db_path }}</code>
+                            </div>
+
+                            <!-- Overall Statistics -->
+                            <div class="row mb-4">
+                                <div class="col-md-3">
+                                    <div class="card bg-primary text-white">
+                                        <div class="card-body text-center">
+                                            <h3 class="mb-0">{{ db_stats.total_articles }}</h3>
+                                            <small>Total Articles</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-info text-white">
+                                        <div class="card-body text-center">
+                                            <h3 class="mb-0">{{ db_stats.total_iterations }}</h3>
+                                            <small>Total Iterations</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-success text-white">
+                                        <div class="card-body text-center">
+                                            <h3 class="mb-0">
+                                                {% if db_stats.current_iteration is not none %}
+                                                    {{ db_stats.current_iteration }}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </h3>
+                                            <small>Current Iteration</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-secondary text-white">
+                                        <div class="card-body text-center">
+                                            <h3 class="mb-0">{{ db_stats.seen_titles_count }}</h3>
+                                            <small>Seen Titles</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {% if db_stats.search_method %}
+                            <div class="alert alert-info">
+                                <i class="fas fa-search"></i> 
+                                <strong>Search Method:</strong> 
+                                <span class="badge bg-info">{{ db_stats.search_method }}</span>
+                            </div>
+                            {% endif %}
+
+                            <!-- Selection Stage Summary -->
+                            {% if db_stats.by_selection_stage %}
+                            <div class="mb-4">
+                                <h5 class="mb-3"><i class="fas fa-filter"></i> Articles by Selection Stage</h5>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered table-hover">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Selection Stage</th>
+                                                <th class="text-end">Count</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td><span class="badge bg-secondary">Not Selected</span></td>
+                                                <td class="text-end">{{ db_stats.by_selection_stage.get(0, 0) }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td><span class="badge bg-warning">Metadata Approved</span></td>
+                                                <td class="text-end">{{ db_stats.by_selection_stage.get(1, 0) }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td><span class="badge bg-info">Title Approved</span></td>
+                                                <td class="text-end">{{ db_stats.by_selection_stage.get(2, 0) }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td><span class="badge bg-success">Content Approved</span></td>
+                                                <td class="text-end">{{ db_stats.by_selection_stage.get(3, 0) }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td><span class="badge bg-danger">Duplicate</span></td>
+                                                <td class="text-end">{{ db_stats.by_selection_stage.get(-1, 0) }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <!-- Iteration Statistics -->
+                            {% if iteration_stats %}
+                            <div class="mt-4">
+                                <h5 class="mb-3"><i class="fas fa-layer-group"></i> Statistics by Iteration</h5>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered table-hover table-striped">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Iteration</th>
+                                                <th class="text-end">Total</th>
+                                                <th class="text-end">Not Selected</th>
+                                                <th class="text-end">Metadata Approved</th>
+                                                <th class="text-end">Title Approved</th>
+                                                <th class="text-end">Content Approved</th>
+                                                <th class="text-end">Duplicate</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for stat in iteration_stats %}
+                                            <tr>
+                                                <td>
+                                                    <strong>Iteration {{ stat.iteration }}</strong>
+                                                    {% if stat.iteration == db_stats.current_iteration %}
+                                                        <span class="badge bg-primary ms-2">Current</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-end"><strong>{{ stat.total }}</strong></td>
+                                                <td class="text-end">{{ stat.not_selected }}</td>
+                                                <td class="text-end">{{ stat.metadata_approved }}</td>
+                                                <td class="text-end">{{ stat.title_approved }}</td>
+                                                <td class="text-end">{{ stat.content_approved }}</td>
+                                                <td class="text-end">{{ stat.duplicate }}</td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <!-- Individual Articles Table -->
+                            {% if articles %}
+                            <div class="mt-5">
+                                <h5 class="mb-3"><i class="fas fa-list"></i> Database Entries ({{ articles|length }}{% if db_stats and db_stats.total_articles > articles|length %} of {{ db_stats.total_articles }}{% endif %})</h5>
+                                {% if db_stats and db_stats.total_articles > articles|length %}
+                                <div class="alert alert-info mb-3">
+                                    <i class="fas fa-info-circle"></i> 
+                                    Showing first {{ articles|length }} entries. Total entries: {{ db_stats.total_articles }}
+                                </div>
+                                {% endif %}
+                                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                                    <table class="table table-bordered table-hover table-sm" style="font-size: 0.9rem;">
+                                        <thead class="table-light sticky-top">
+                                            <tr>
+                                                <th style="width: 5%">ID</th>
+                                                <th style="width: 30%">Title</th>
+                                                <th style="width: 20%">Authors</th>
+                                                <th style="width: 15%">Venue</th>
+                                                <th style="width: 5%">Year</th>
+                                                <th style="width: 5%">Iter.</th>
+                                                <th style="width: 10%">Stage</th>
+                                                <th style="width: 5%">Citations</th>
+                                                <th style="width: 5%">Link</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for article in articles %}
+                                            <tr>
+                                                <td>
+                                                    <small class="text-muted">{{ article.id[:8] }}...</small>
+                                                </td>
+                                                <td>
+                                                    <div style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ article.title }}">
+                                                        {{ article.title }}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ article.authors }}">
+                                                        {{ article.authors }}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ article.venue }}">
+                                                        {{ article.venue }}
+                                                    </div>
+                                                </td>
+                                                <td class="text-center">{{ article.pub_year or '-' }}</td>
+                                                <td class="text-center">
+                                                    <span class="badge bg-secondary">{{ article.iteration }}</span>
+                                                </td>
+                                                <td class="text-center">
+                                                    {% if article.selected == 0 %}
+                                                        <span class="badge bg-secondary">Not Selected</span>
+                                                    {% elif article.selected == 1 %}
+                                                        <span class="badge bg-warning">Metadata</span>
+                                                    {% elif article.selected == 2 %}
+                                                        <span class="badge bg-info">Title</span>
+                                                    {% elif article.selected == 3 %}
+                                                        <span class="badge bg-success">Content</span>
+                                                    {% elif article.selected == -1 %}
+                                                        <span class="badge bg-danger">Duplicate</span>
+                                                    {% else %}
+                                                        <span class="badge bg-secondary">{{ article.selected }}</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-center">
+                                                    {% if article.num_citations and article.num_citations != -1 %}
+                                                        {{ article.num_citations }}
+                                                    {% else %}
+                                                        <span class="text-muted">-</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-center">
+                                                    {% if article.eprint_url %}
+                                                        <a href="{{ article.eprint_url }}" target="_blank" class="btn btn-sm btn-outline-primary" title="Open URL">
+                                                            <i class="fas fa-external-link-alt"></i>
+                                                        </a>
+                                                    {% else %}
+                                                        <span class="text-muted">-</span>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                        {% elif db_exists %}
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle"></i> 
+                                <strong>Database found but empty:</strong> <code>{{ db_path }}</code>
+                            </div>
+                            <p class="text-muted">
+                                The database exists but contains no data. You may need to:
+                            </p>
+                            <ul>
+                                <li>Run the initial snowball start script (Step 0)</li>
+                                <li>Check if the database path in your configuration is correct</li>
+                            </ul>
+                        {% else %}
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle"></i> 
+                                <strong>Database not found:</strong> <code>{{ db_path }}</code>
+                            </div>
+                            <p class="text-muted">
+                                The database file does not exist yet. You may need to:
+                            </p>
+                            <ul>
+                                <li>Generate a search configuration first</li>
+                                <li>Run the initial snowball start script (Step 0)</li>
+                                <li>Check if the database path in your configuration is correct</li>
+                            </ul>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load Database Modal -->
+    <div class="modal fade" id="loadDatabaseModal" tabindex="-1" aria-labelledby="loadDatabaseModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="loadDatabaseModalLabel">
+                        <i class="fas fa-folder-open"></i> Load Database from File
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="loadDatabaseForm">
+                        <div class="mb-3">
+                            <label for="databasePath" class="form-label">
+                                Database File Path <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="databasePath" 
+                                       placeholder="Enter database file path (e.g., /path/to/database.db)" 
+                                       required>
+                                <input type="file" class="d-none" id="databaseFileInput" 
+                                       accept=".db,.sqlite,.sqlite3" onchange="handleDatabaseFileSelect(this)">
+                                <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('databaseFileInput').click()">
+                                    <i class="fas fa-folder-open"></i> Browse
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                Select a database file from your local file system. The path will be updated in the configuration.
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Note:</strong> After loading, the page will refresh to display the new database.
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="loadDatabase()">
+                        <i class="fas fa-upload"></i> Load Database
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Handle file selection
+        function handleDatabaseFileSelect(fileInput) {
+            const pathInput = document.getElementById('databasePath');
+            
+            if (fileInput.files && fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                // Note: Browsers only provide filename for security reasons
+                // User may need to adjust the path manually if it's not in the current directory
+                pathInput.value = file.name;
+            }
+        }
+
+        // Load database
+        function loadDatabase() {
+            const dbPath = document.getElementById('databasePath').value.trim();
+            
+            if (!dbPath) {
+                alert('Please enter a database file path or select a file.');
+                return;
+            }
+
+            // Disable button and show loading state
+            const loadBtn = event.target;
+            const originalText = loadBtn.innerHTML;
+            loadBtn.disabled = true;
+            loadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+
+            // Send request to load database
+            fetch('/api/database/load', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ db_path: dbPath })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Close modal and reload page
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('loadDatabaseModal'));
+                    modal.hide();
+                    
+                    // Show success message and reload
+                    alert('Database loaded successfully! The page will now refresh.');
+                    window.location.reload();
+                } else {
+                    alert('Error loading database: ' + (data.error || 'Unknown error'));
+                    loadBtn.disabled = false;
+                    loadBtn.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error loading database: ' + error.message);
+                loadBtn.disabled = false;
+                loadBtn.innerHTML = originalText;
+            });
+        }
+    </script>
+</body>
+</html>
+

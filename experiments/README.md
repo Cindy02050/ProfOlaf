@@ -1,0 +1,1 @@
+This folder includes the results of all the experiments we made in our paper, including the final database (evaluation.db) and the results for the tasks of automated screening, topic modeling (both topics as well as programming languages) and task assistant (providing a summary)

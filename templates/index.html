@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProfOlaf - Snowball Sampling Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <!-- Header -->
+                <div class="card shadow mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h1 class="mb-0">
+                            <i class="fas fa-snowflake"></i> ProfOlaf
+                        </h1>
+                        <p class="mb-0 mt-2">Snowball Sampling Research Paper Collection Tool</p>
+                    </div>
+                </div>
+
+                <!-- Flash Messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <!-- Main Dashboard Cards -->
+                <div class="row g-4">
+                    <!-- Database State Card -->
+                    <div class="col-md-4">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-database fa-3x text-primary"></i>
+                                </div>
+                                <h5 class="card-title">Database State</h5>
+                                <p class="card-text text-muted">
+                                    {% if db_exists %}
+                                        <span class="badge bg-success">Database exists</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">Database not found</span>
+                                    {% endif %}
+                                </p>
+                                {% if db_exists %}
+                                    <a href="{{ url_for('database_state') }}" class="btn btn-primary">
+                                        <i class="fas fa-search"></i> Check Database
+                                    </a>
+                                {% else %}
+                                    <button class="btn btn-secondary" disabled>
+                                        <i class="fas fa-exclamation-circle"></i> No Database
+                                    </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Card -->
+                    <div class="col-md-4">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-cog fa-3x text-primary"></i>
+                                </div>
+                                <h5 class="card-title">Configuration</h5>
+                                <p class="card-text text-muted">
+                                    {% if config_exists %}
+                                        <span class="badge bg-success">Configured</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Not configured</span>
+                                    {% endif %}
+                                </p>
+                                <a href="{{ url_for('configuration') }}" class="btn btn-primary">
+                                    <i class="fas fa-cog"></i> 
+                                    {% if config_exists %}View/Edit{% else %}Generate{% endif %} Configuration
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Workflow Stage Card -->
+                    <div class="col-md-4">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-tasks fa-3x text-primary"></i>
+                                </div>
+                                <h5 class="card-title">Workflow Stage</h5>
+                                <p class="card-text text-muted">
+                                    Check current progress in the workflow
+                                </p>
+                                <a href="{{ url_for('workflow_stage') }}" class="btn btn-primary">
+                                    <i class="fas fa-chart-line"></i> Check Workflow
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis Tools Section -->
+                <div class="row g-4 mt-2">
+                    <div class="col-12">
+                        <h4 class="mb-3"><i class="fas fa-microscope"></i> Analysis Tools</h4>
+                        <p class="text-muted mb-4">Tools for analyzing the final set of papers after snowballing iterations are complete.</p>
+                    </div>
+                    
+                    <!-- Generate Analysis Config Card -->
+                    <div class="col-md-3">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-file-code fa-3x text-success"></i>
+                                </div>
+                                <h5 class="card-title">Analysis Config</h5>
+                                <p class="card-text text-muted small">
+                                    Generate configuration file for analysis tools
+                                </p>
+                                <a href="{{ url_for('generate_analysis_conf_route') }}" class="btn btn-success">
+                                    <i class="fas fa-cog"></i> Generate Config
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Download PDFs Card -->
+                    <div class="col-md-3">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-download fa-3x text-info"></i>
+                                </div>
+                                <h5 class="card-title">Download PDFs</h5>
+                                <p class="card-text text-muted small">
+                                    Download PDFs from CSV file for analysis
+                                </p>
+                                <a href="{{ url_for('download_pdfs_analysis_page') }}" class="btn btn-info">
+                                    <i class="fas fa-file-pdf"></i> Download PDFs
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Task Assistant Card -->
+                    <div class="col-md-3">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-robot fa-3x text-warning"></i>
+                                </div>
+                                <h5 class="card-title">Task Assistant</h5>
+                                <p class="card-text text-muted small">
+                                    LLM-powered Q&A system for PDF documents
+                                </p>
+                                <a href="{{ url_for('task_assistant_page') }}" class="btn btn-warning">
+                                    <i class="fas fa-comments"></i> Task Assistant
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Topic Modeling Card -->
+                    <div class="col-md-3">
+                        <div class="card shadow h-100">
+                            <div class="card-body text-center">
+                                <div class="mb-3">
+                                    <i class="fas fa-project-diagram fa-3x text-danger"></i>
+                                </div>
+                                <h5 class="card-title">Topic Modeling</h5>
+                                <p class="card-text text-muted small">
+                                    Perform hierarchical topic modeling on PDFs
+                                </p>
+                                <a href="{{ url_for('topic_modeling_page') }}" class="btn btn-danger">
+                                    <i class="fas fa-sitemap"></i> Topic Modeling
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Info Card -->
+                <div class="card shadow mt-4">
+                    <div class="card-body">
+                        <h5><i class="fas fa-info-circle"></i> About ProfOlaf</h5>
+                        <p>ProfOlaf is a tool designed to help researchers with literature reviews by automating the process of snowballing articles through an initial seed.</p>
+                        <p> The tool is designed to be used in a systematic literature review process. The standard workflow of the tool is described in the diagram below.</p>
+                        <img src="static/images/profolaf.png" alt="Workflow" class="img-fluid">
+                        <p>Note: currently, backward snowballing is only supported for Semantic Scholar. Google Scholar only supports forward snowballing.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+

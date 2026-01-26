@@ -14,7 +14,52 @@ class SelectionStage(Enum):
     TITLE_APPROVED = 2
     CONTENT_APPROVED = 3
     
+@dataclass
+class ArticleData:
+    id: str = ""
+    container_type: str = ""
+    source: str = ""
+    title: str = ""
+    authors: str = ""
+    venue: str = ""
+    pub_year: int = 0
+    pub_url: str = ""
+    num_citations: int = -1
+    citedby_url: str = ""
+    url_related_articles: str = ""
+    eprint_url: str = ""
+    download_filtered_out: bool = False
+    language_filtered_out: bool = False
+    venue_filtered_out: bool = False
+    year_filtered_out: bool = False
+    keep_title: bool = False  # Replaces title_filtered_out - True means keep, False means filtered out
+    keep_content: bool = False  # Replaces abstract_filtered_out - True means keep, False means filtered out
+    new_pub: bool = False
+    selected: int = 0
+    bibtex: str = ""
+    iteration: int = 0
+    duplicate: bool = False
+    search_method: str = ""
+    dict = asdict
 
+    def set_iteration(self, iteration: int):
+        self.iteration = iteration
+    def set_selected(self, selected: SelectionStage):
+        self.selected = selected
+    def set_bibtex(self, bibtex: str):
+        self.bibtex = bibtex
+    def set_duplicate(self, duplicate: bool):
+        self.duplicate = duplicate
+    def set_search_method(self, search_method: str):
+        self.search_method = search_method
+    def __hash__(self):
+        # Use id as the primary hash since it should be unique
+        return hash(self.id)
+    
+    def __eq__(self, other):
+        if not isinstance(other, ArticleData):
+            return False
+        return self.id == other.id
 
 def get_article_data(pub, pub_id, iteration: int = 0, selected: SelectionStage = SelectionStage.NOT_SELECTED, new_pub: bool = False, search_method: str = ""):
     """
@@ -39,56 +84,6 @@ def get_article_data(pub, pub_id, iteration: int = 0, selected: SelectionStage =
     pub_info["search_method"] = search_method
     return ArticleData(**pub_info)
 
-@dataclass
-class ArticleData:
-    id: str = ""
-    container_type: str = ""
-    source: str = ""
-    title: str = ""
-    authors: str = ""
-    venue: str = ""
-    pub_year: int = 0
-    pub_url: str = ""
-    num_citations: int = -1
-    citedby_url: str = ""
-    url_related_articles: str = ""
-    eprint_url: str = ""
-    year_filtered_out: bool = False
-    venue_filtered_out: bool = False
-    title_filtered_out: bool = False
-    abstract_filtered_out: bool = False
-    language_filtered_out: bool = False
-    download_filtered_out: bool = False
-    new_pub: bool = False
-    selected: int = 0
-    bibtex: str = ""
-    iteration: int = 0
-    title_reason: str = ""
-    content_reason: str = ""
-    duplicate: bool = False
-    search_method: str = ""
-    dict = asdict
-
-    def set_iteration(self, iteration: int):
-        self.iteration = iteration
-    def set_selected(self, selected: SelectionStage):
-        self.selected = selected
-    def set_bibtex(self, bibtex: str):
-        self.bibtex = bibtex
-    def set_duplicate(self, duplicate: bool):
-        self.duplicate = duplicate
-    def set_search_method(self, search_method: str):
-        self.search_method = search_method
-    def __hash__(self):
-        # Use id as the primary hash since it should be unique
-        return hash(self.id)
-    
-    def __eq__(self, other):
-        if not isinstance(other, ArticleData):
-            return False
-        return self.id == other.id
-
-
 
 class DBManager:
     SQL_TYPES = {
@@ -98,14 +93,26 @@ class DBManager:
         bool: 'BOOLEAN'
     }
     def __init__(self, db_path: str, new_db: bool = False):
-        # if new_db is false and the db doesn't exist, raise an error
         if not new_db and not os.path.exists(db_path):
             raise ValueError(f"Database file does not exist: {db_path}")
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
 
-    # -------------------------- Iteration Table Methods --------------------------
+        if not new_db:
+            try:
+                self.create_workflow_metadata_table()
+            except:
+                pass  # Table might already exist or there might be other issues
 
+    # -------------------------- Helper Methods --------------------------
+    def _convert_enum_value(self, value):
+        """Helper method to convert enum values to their underlying values for SQLite."""
+        if hasattr(value, 'value'):  # Check if it's an enum
+            return value.value
+        else:
+            return value
+
+    # -------------------------- Iteration Table Methods --------------------------
     def check_current_iteration(self):
         """ Check the most recent iteration in the database """
         table_name = "iterations"
@@ -121,7 +128,7 @@ class DBManager:
             print(f"Error checking current iteration: {e}")
             self.conn.rollback()
 
-    def create_iterations_table(self):
+    def create_iterations_table(self, annotations: List[str] = None):
         # create a table for the iteration if it doesn't exist
         table_name = "iterations"
         try:
@@ -130,6 +137,21 @@ class DBManager:
             ).fetchall()
 
             if tables_found != []:
+                # Table exists - check if we need to add annotation columns
+                if annotations:
+                    # Get existing columns
+                    self.cursor.execute(f"PRAGMA table_info({table_name})")
+                    existing_columns = [row[1] for row in self.cursor.fetchall()]
+                    
+                    # Add annotation columns if they don't exist
+                    for annotation in annotations:
+                        if annotation not in existing_columns:
+                            try:
+                                self.cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {annotation} TEXT")
+                            except Exception as e:
+                                # Column might already exist or other error, skip
+                                pass
+                    self.conn.commit()
                 return
             
             field_definitions = []
@@ -140,6 +162,11 @@ class DBManager:
                     raise ValueError(f"Unsupported field type: {field_type}")
                 sql_type = self.SQL_TYPES[field_type]
                 field_definitions.append(f"{field_name} {sql_type}")
+            
+            # Add annotation columns as TEXT (will store JSON strings)
+            if annotations:
+                for annotation in annotations:
+                    field_definitions.append(f"{annotation} TEXT")
                 
             create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(field_definitions)})"
             
@@ -274,35 +301,35 @@ class DBManager:
         finally:
             self.conn.row_factory = None
     
-    def _convert_enum_value(self, value):
-        """Helper method to convert enum values to their underlying values for SQLite."""
-        if hasattr(value, 'value'):  # Check if it's an enum
-            return value.value
-        else:
-            return value
-    
-    def update_iteration_data(self, iteration: int, article_id: str, **kwargs):
+    def update_iteration_data(self, iteration: int, article_id: str = "", **kwargs):
         table_name = "iterations"
         try:
             assignments = ', '.join([f"{key} = ?" for key in kwargs.keys()])
-            sql_query = f"UPDATE {table_name} SET {assignments} WHERE id = ? and iteration = ?"
+            if article_id != "":
+                sql_query = f"UPDATE {table_name} SET {assignments} WHERE id = ? and iteration = ?"
+                values = [kwargs[key] for key in kwargs] + [article_id, iteration]
+            else:
+                sql_query = f"UPDATE {table_name} SET {assignments} WHERE iteration = ?"
+                values = [kwargs[key] for key in kwargs] + [iteration]
             for key, value in kwargs.items():
                 if hasattr(value, 'value'):  # Handle enum values
                     kwargs[key] = value.value
                 elif isinstance(value, (list, dict)):
-                    print("is dict")
                     kwargs[key] = json.dumps(value)
                 elif value is None:
                     kwargs[key] = ""
-                elif isinstance(value, int) and key in ['id', 'pub_year', 'num_citations']:  # Convert large integers to strings
-                    kwargs[key] = str(value)
-            self.cursor.execute(sql_query, [kwargs[key] for key in kwargs] + [article_id, iteration])
+                elif isinstance(value, int):
+                    # Convert integers to strings for SQLite (all integer fields are stored as TEXT)
+                    if key in ['id', 'pub_year', 'num_citations', 'selected', 'iteration']:
+                        kwargs[key] = str(value)
+                    else:
+                        kwargs[key] = str(value)  # Convert all ints to strings for consistency
+            values = [kwargs[key] for key in kwargs] + [article_id, iteration] if article_id != "" else [kwargs[key] for key in kwargs] + [iteration]
+            self.cursor.execute(sql_query, values)
             self.conn.commit()
         except Exception as e:
             self.conn.rollback()
             raise ValueError(f"Failed to update iteration data: {e}")
-        
-    
 
     def update_batch_iteration_data(self, iteration: int, update_data: List[Tuple[str, any, str]]):
         table_name = "iterations"
@@ -337,6 +364,323 @@ class DBManager:
         except Exception as e:
             self.conn.rollback()
             raise ValueError(f"Failed to delete batch iteration data: {e}")
+
+    def clear_unidentified_articles(self, iteration: int):
+        table_name = "iterations"
+        try:
+            self.cursor.execute(f"DELETE FROM {table_name} WHERE id = '' AND iteration = ?", (iteration,))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to clear unidentified articles: {e}")
+
+    # --------------------------- Screening Table Methods --------------------------
+    def create_screening_table(self, annotations: List[str]):
+        annotation_columns = []
+        for annotation in annotations:
+            annotation_columns.append(f"{annotation} TEXT")
+        annotation_columns_str = ", ".join(annotation_columns) if annotation_columns else ""
+        table_name = "screening"
+        try:
+            tables_found = self.cursor.execute(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'; "
+            ).fetchall()
+            
+            # If table exists, check if it has the correct structure (composite primary key)
+            # Only drop and recreate if the structure is wrong
+            if tables_found != []:
+                # Check if table has composite primary key
+                self.cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                create_sql_result = self.cursor.fetchone()
+                if create_sql_result and create_sql_result[0]:
+                    create_sql = create_sql_result[0]
+                    if 'PRIMARY KEY(id, rater)' not in create_sql.replace('\n', ' ').replace('  ', ' '):
+                        # Table exists but doesn't have composite primary key - drop and recreate
+                        print(f"WARNING: Dropping {table_name} table to recreate with composite primary key")
+                        self.cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+                    else:
+                        # Table exists with correct structure - just ensure annotation columns and title column exist
+                        self.cursor.execute(f"PRAGMA table_info({table_name})")
+                        columns_info = self.cursor.fetchall()
+                        existing_columns = [col[1] for col in columns_info]
+                        # Add title column if it doesn't exist
+                        if "title" not in existing_columns:
+                            try:
+                                self.cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN title TEXT")
+                            except sqlite3.OperationalError:
+                                pass  # Column might already exist
+                        # Add annotation columns if they don't exist
+                        for annotation in annotations:
+                            if annotation not in existing_columns:
+                                try:
+                                    self.cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {annotation} TEXT")
+                                except sqlite3.OperationalError:
+                                    pass  # Column might already exist
+                        self.conn.commit()
+                        return
+            
+            # Composite primary key on (id, rater)
+            if annotation_columns_str:
+                create_query = f"CREATE TABLE IF NOT EXISTS screening \
+(id TEXT, rater TEXT, iteration INTEGER, title TEXT,\
+keep_title BOOLEAN, reason_title  TEXT,\
+keep_content BOOLEAN, reason_content TEXT, {annotation_columns_str},\
+title_settled BOOLEAN, content_settled BOOLEAN,\
+PRIMARY KEY(id, rater))"
+            else:
+                create_query = f"CREATE TABLE IF NOT EXISTS screening \
+(id TEXT, rater TEXT, iteration INTEGER, title TEXT,\
+keep_title BOOLEAN, reason_title  TEXT,\
+keep_content BOOLEAN, reason_content TEXT,\
+title_settled BOOLEAN, content_settled BOOLEAN,\
+PRIMARY KEY(id, rater))"
+            
+            self.cursor.execute(create_query)
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to create screening table: {e}")
+    
+    def insert_screening_data(
+        self, 
+        article_id: str, 
+        rater: str, 
+        iteration: int, 
+        keep: bool, 
+        reason: str,
+        settled: bool = False,
+        screening_phase: str="title",
+        title: str = "",
+        **annotations: str
+    ):
+        table_name = "screening"
+        # if there's no table screening, create it
+        if not self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'").fetchone():
+            self.create_screening_table(list(annotations.keys()))
+        try:
+            # Convert boolean to int for SQLite
+            keep_int = 1 if keep else 0
+            title_settled_int = 1 if screening_phase == "title" and settled else 0
+            content_settled_int = 1 if screening_phase == "content" and settled else 0
+            keep_key = f"keep_{screening_phase}"
+            reason_key = f"reason_{screening_phase}"
+            settle_key = f"{screening_phase}_settled"
+            
+            # Build column list - include all columns, setting defaults for the other phase
+            annotation_keys = list(annotations.keys())
+            
+            # Determine the other phase columns
+            other_phase = "content" if screening_phase == "title" else "title"
+            other_keep_key = f"keep_{other_phase}"
+            other_reason_key = f"reason_{other_phase}"
+            other_settle_key = f"{other_phase}_settled"
+            
+            # Include all columns: id, rater, iteration, title, keep_title, reason_title, title_settled, keep_content, reason_content, content_settled, annotations
+            columns = ["id", "rater", "iteration", "title", "keep_title", "reason_title", "title_settled", "keep_content", "reason_content", "content_settled"]
+            if annotation_keys:
+                columns.extend(annotation_keys)
+            
+            # Build placeholders for VALUES
+            placeholders = ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?"]
+            if annotation_keys:
+                placeholders.extend(["?"] * len(annotation_keys))
+            
+            # Build UPDATE clause for ON CONFLICT - update current phase columns and title
+            update_clauses = ["title = ?", f"{keep_key} = ?", f"{reason_key} = ?", f"{settle_key} = ?"]
+            if annotation_keys:
+                update_clauses.extend([f"{key} = ?" for key in annotation_keys])
+            
+            # Build values: insert values for all columns
+            # For current phase: use actual values
+            # For other phase: use defaults (0 for keep, '' for reason, 0 for settled)
+            insert_values = [
+                article_id, 
+                rater, 
+                iteration,
+                title,                                             # title
+                1 if screening_phase == "title" and keep else 0,  # keep_title
+                reason if screening_phase == "title" else "",    # reason_title
+                title_settled_int,                                # title_settled
+                1 if screening_phase == "content" and keep else 0,  # keep_content
+                reason if screening_phase == "content" else "",     # reason_content
+                content_settled_int                                 # content_settled
+            ]
+            if annotation_keys:
+                insert_values.extend([annotations[key] for key in annotation_keys])
+            
+            # Update values for ON CONFLICT - update title and current phase
+            update_values = [title, keep_int, reason, title_settled_int if screening_phase == "title" else content_settled_int]
+            if annotation_keys:
+                update_values.extend([annotations[key] for key in annotation_keys])
+            
+            query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(placeholders)}) ON CONFLICT(id, rater) DO UPDATE SET {', '.join(update_clauses)}"
+            values = tuple(insert_values + update_values)
+            
+            self.cursor.execute(query, values)
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to insert screening data: {e}")
+    
+    def get_screening_data(self, iteration: int, title_settled: bool = False, content_settled: bool = False):
+        table_name = "screening"
+        original_row_factory = self.conn.row_factory
+        try:
+            self.conn.row_factory = sqlite3.Row
+            cursor = self.conn.cursor()
+            
+            title_settled_int = 1 if title_settled else 0
+            content_settled_int = 1 if content_settled else 0
+
+            query = f"SELECT * FROM {table_name} WHERE iteration = ? AND title_settled = ? AND content_settled = ?"
+            values = (iteration, title_settled_int, content_settled_int)
+            cursor.execute(query, values)
+
+            column_names = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                if isinstance(row, sqlite3.Row):
+                    row_dict = {key: row[key] for key in row.keys()}
+                else:
+                    row_dict = dict(zip(column_names, row))
+                result.append(row_dict)
+            cursor.close()
+            return result
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get screening data: {e}")
+        finally:
+            self.conn.row_factory = original_row_factory
+
+    def update_screening_data(self, iteration: int, article_id: str, **kwargs):
+        table_name = "screening"
+        try:
+            assignments = ', '.join([f"{key} = ?" for key in kwargs.keys()])
+            sql_query = f"UPDATE {table_name} SET {assignments} WHERE id = ? and iteration = ?"
+            # Convert boolean values to integers for SQLite
+            values = []
+            for key in kwargs:
+                value = kwargs[key]
+                # Convert boolean to int for SQLite (False = 0, True = 1)
+                if isinstance(value, bool):
+                    values.append(1 if value else 0)
+                else:
+                    values.append(value)
+            self.cursor.execute(sql_query, values + [article_id, iteration])
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to update screening data: {e}")
+
+    def get_agreements_screening_data(
+        self, 
+        iteration: int, 
+        title_settled: bool = False, 
+        content_settled: bool = False,
+        phase: str = "title"
+    ):
+        """ 
+        Searches in the screening table for all rows with the same article_id and iteration.
+        Only returns rows if all raters agree on the 'keep' value (i.e., all rows have the same keep value).
+        If there are different keep values for the same article_id, returns an empty list.
+        """
+        table_name = "screening"
+        original_row_factory = self.conn.row_factory
+        try:
+            self.conn.row_factory = sqlite3.Row
+            cursor = self.conn.cursor()
+            
+            title_settled_int = 1 if title_settled else 0
+            content_settled_int = 1 if content_settled else 0
+            keep_key = f"keep_{phase}"
+            query = f"""
+                SELECT s1.* FROM {table_name} s1
+                WHERE s1.iteration = ? AND s1.title_settled = ? AND s1.content_settled = ?
+                AND (
+                    SELECT COUNT(DISTINCT s2.{keep_key}) 
+                    FROM {table_name} s2 
+                    WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                ) = 1
+                ORDER BY s1.id
+            """
+            values = (iteration, title_settled_int, content_settled_int)
+            cursor.execute(query, values)
+            
+            column_names = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                if isinstance(row, sqlite3.Row):
+                    row_dict = {key: row[key] for key in row.keys()}
+                else:
+                    row_dict = dict(zip(column_names, row))
+                result.append(row_dict)
+            cursor.close()
+            return result
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get agreements screening data: {e}")
+        finally:
+            self.conn.row_factory = original_row_factory
+
+    def get_disagreements_screening_data(
+        self, 
+        iteration: int, 
+        title_settled: bool = False, 
+        content_settled: bool = False,
+        phase: str = "title"
+    ):
+        table_name = "screening"
+        original_row_factory = self.conn.row_factory
+        try:
+            self.conn.row_factory = sqlite3.Row
+            cursor = self.conn.cursor()
+            
+            title_settled_int = 1 if title_settled else 0
+            content_settled_int = 1 if content_settled else 0
+            keep_key = f"keep_{phase}"
+            query = f"""
+                SELECT s1.* FROM {table_name} s1
+                WHERE s1.iteration = ? AND s1.title_settled = ? AND s1.content_settled = ?
+                AND (
+                    SELECT COUNT(DISTINCT s2.{keep_key}) 
+                    FROM {table_name} s2 
+                    WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                ) > 1
+                ORDER BY s1.id
+            """
+            values = (iteration, title_settled_int, content_settled_int)
+            cursor.execute(query, values)
+            
+            column_names = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                if isinstance(row, sqlite3.Row):
+                    row_dict = {key: row[key] for key in row.keys()}
+                else:
+                    row_dict = dict(zip(column_names, row))
+                result.append(row_dict)
+            cursor.close()
+            return result
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get agreements screening data: {e}")
+        finally:
+            self.conn.row_factory = original_row_factory
+
+    def settle_screening_data(self, iteration: int, article_id: str, settled: bool = False, phase: str = "title"):
+        table_name = "screening"
+        try:
+            # Convert boolean to int for SQLite (False = 0, True = 1)
+            settled_int = 1 if settled else 0
+            phase_key = f"{phase}_settled"
+            self.cursor.execute(f"UPDATE {table_name} SET {phase_key} = ? WHERE iteration = ? AND id = ?", (settled_int, iteration, article_id))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to settle screening data: {e}")
 
     # -------------------------- Seen Titles Table Methods --------------------------
     
@@ -441,10 +785,188 @@ class DBManager:
             self.conn.rollback()
             raise ValueError(f"Failed to get venue rank data: {e}")
 
+    # -------------------------- Workflow Metadata Table Methods --------------------------
 
-def initialize_db(db_path: str):
+    def create_workflow_metadata_table(self):
+        """Create table to store workflow metadata (current iteration, last step, etc.)"""
+        table_name = "workflow_metadata"
+        try:
+            tables_found = self.cursor.execute(
+                f"""SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'; """
+            ).fetchall()
+            if tables_found != []:
+                return
+            
+            # Create table with a single row (key-value pair approach)
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS workflow_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+            
+            # Initialize with default values if table was just created
+            self.cursor.execute("""
+                INSERT OR IGNORE INTO workflow_metadata (key, value) 
+                VALUES ('current_iteration', NULL), ('last_step', NULL)
+            """)
+            
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to create workflow metadata table: {e}")
+
+    def get_workflow_metadata(self):
+        """Get all workflow metadata as a dictionary"""
+        table_name = "workflow_metadata"
+        try:
+            self.cursor.execute(f"SELECT key, value FROM {table_name}")
+            rows = self.cursor.fetchall()
+            metadata = {}
+            for key, value in rows:
+                metadata[key] = value
+            return metadata
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get workflow metadata: {e}")
+
+    def get_current_iteration(self):
+        """Get current iteration from workflow metadata"""
+        try:
+            metadata = self.get_workflow_metadata()
+            current_iteration = metadata.get('current_iteration')
+            if current_iteration is not None:
+                try:
+                    return int(current_iteration)
+                except (ValueError, TypeError):
+                    return None
+            return None
+        except Exception as e:
+            return None
+
+    def get_last_step(self):
+        """Get last executed step from workflow metadata"""
+        try:
+            metadata = self.get_workflow_metadata()
+            return metadata.get('last_step')
+        except Exception as e:
+            return None
+
+    def set_workflow_metadata(self, key: str, value):
+        """Set a workflow metadata value"""
+        table_name = "workflow_metadata"
+        try:
+            # Convert value to string if it's not None
+            if value is not None:
+                value_str = str(value)
+            else:
+                value_str = None
+            
+            self.cursor.execute(
+                f"INSERT OR REPLACE INTO {table_name} (key, value) VALUES (?, ?)",
+                (key, value_str)
+            )
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to set workflow metadata: {e}")
+
+    def update_current_iteration(self, iteration):
+        """Update current iteration in workflow metadata"""
+        self.set_workflow_metadata('current_iteration', iteration)
+
+    def update_last_step(self, step_name):
+        """Update last executed step in workflow metadata"""
+        self.set_workflow_metadata('last_step', step_name)
+
+    def update_workflow_metadata(self, current_iteration=None, last_step=None):
+        """Update workflow metadata (current iteration and/or last step)"""
+        if current_iteration is not None:
+            self.update_current_iteration(current_iteration)
+        if last_step is not None:
+            self.update_last_step(last_step)
+
+    # -------------------------- Merge Databases Methods --------------------------
+    def merge_databases(self, *other_dbs: 'DBManager'):
+        """
+        Merge the multiple databases into a single database.
+        
+        All databases have the same tables with the same structure.
+        Only the screening table will contain different elements across databases.
+        The resulting screening table will have all rows from all the different databases.
+        
+        Args:
+            *other_dbs: Variable number of DBManager instances to merge into this database
+        """
+        table_name = "screening"
+        
+        try:
+            # Get the schema of the current database's screening table
+            self.cursor.execute(f"PRAGMA table_info({table_name})")
+            current_columns = [row[1] for row in self.cursor.fetchall()]
+            
+            if not current_columns:
+                raise ValueError(f"Screening table does not exist in the current database")
+            
+            for other_db in other_dbs:
+                other_db.cursor.execute(f"PRAGMA table_info({table_name})")
+                other_columns = [row[1] for row in other_db.cursor.fetchall()]
+                
+                if not other_columns:
+                    continue
+                
+                # All columns must be present in the current database
+                common_columns = [col for col in current_columns if col in other_columns]
+                if not common_columns or len(common_columns) != len(current_columns):
+                    raise ValueError(f"screening tables in {self.db_path} and {other_db.db_path} do not have the same columns")
+                
+                other_db.conn.row_factory = sqlite3.Row
+                other_cursor = other_db.conn.cursor()
+                other_cursor.execute(f"SELECT * FROM {table_name}")
+                rows = other_cursor.fetchall()
+                
+                columns_str = ', '.join(common_columns)
+                placeholders = ', '.join(['?'] * len(common_columns))
+                insert_query = f"INSERT OR REPLACE INTO {table_name} ({columns_str}) VALUES ({placeholders})"
+                
+                for row in rows:
+                    if isinstance(row, sqlite3.Row):
+                        values = [row[col] for col in common_columns]
+                    else:
+                        column_to_index = {col: i for i, col in enumerate(other_columns)}
+                        values = [row[column_to_index[col]] if col in column_to_index else None for col in common_columns]
+                    
+                    self.cursor.execute(insert_query, values)
+                
+                other_db.conn.row_factory = None
+                other_cursor.close()
+            
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to merge databases: {e}")
+        
+def initialize_db(db_path: str, search_conf: dict):
     db_manager = DBManager(db_path, new_db=True)
-    db_manager.create_iterations_table()
+    annotations = search_conf.get("annotations", [])
+    db_manager.create_iterations_table(annotations=annotations)
     db_manager.create_seen_titles_table()
     db_manager.create_conf_rank_table()
+    db_manager.create_workflow_metadata_table()
+    db_manager.create_screening_table(annotations)
     return db_manager
+
+def get_iteration_setup(db_path: str, **kwargs):
+    db_manager = DBManager(db_path)
+    return db_manager, db_manager.get_iteration_data(**kwargs)
+
+def merge_databases(db_paths: list[str]):
+    """
+    Merge the multiple databases into a single database.
+    """
+    merged_db = DBManager(db_paths[0])
+    db_managers = [DBManager(db_path) for db_path in db_paths[1:]]
+    merged_db.merge_databases(*db_managers)
+    return merged_db
+
+    

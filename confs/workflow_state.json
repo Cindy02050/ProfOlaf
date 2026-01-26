@@ -1,0 +1,10 @@
+{
+  "db_path": "databases/test.db",
+  "current_iteration": 1,
+  "last_step": "Step 4: Assign Venue Ranks",
+  "skipped_steps": [
+    "Step 2: Get BibTeX",
+    "Step 4: Filter by Metadata",
+    "Step 3: Assign Venue Ranks"
+  ]
+}

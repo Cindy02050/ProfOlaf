@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 3: Generate Conf Rank - ProfOlaf</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .venue-card {
+            margin-bottom: 2rem;
+        }
+        .similar-venue-item {
+            cursor: pointer;
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            transition: background-color 0.2s;
+        }
+        .similar-venue-item:hover {
+            background-color: #f8f9fa;
+        }
+        .similar-venue-item.selected {
+            background-color: #cfe2ff;
+            border-color: #0d6efd;
+        }
+        .database-result {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-family: monospace;
+            font-size: 0.9rem;
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 0.25rem;
+            max-height: 400px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-height: 100px;
+            border: 1px solid #dee2e6;
+        }
+        .rank-badge {
+            font-size: 1.1rem;
+            padding: 0.5rem 1rem;
+            margin: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4 mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-11">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h2 class="mb-0">
+                            <i class="fas fa-star"></i> Step 3: Generate Conf Rank
+                        </h2>
+                        <a href="{{ url_for('workflow_stage') }}" class="btn btn-light btn-sm">
+                            <i class="fas fa-arrow-left"></i> Back to Workflow
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        <!-- Workflow Information Cards -->
+                        <div class="row mb-4">
+                            <div class="col-md-3">
+                                <div class="card bg-primary text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info and workflow_info.current_iteration is not none %}
+                                                {{ workflow_info.current_iteration }}
+                                            {% else %}
+                                                N/A
+                                            {% endif %}
+                                        </h3>
+                                        <small>Current Iteration</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-info text-white">
+                                    <div class="card-body text-center">
+                                        <h5 class="mb-0" style="font-size: 1.1rem;">
+                                            {% if workflow_info and workflow_info.current_step %}
+                                                {{ workflow_info.current_step }}
+                                            {% else %}
+                                                No steps performed yet
+                                            {% endif %}
+                                        </h5>
+                                        <small>Current Step</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-warning text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info %}
+                                                {{ workflow_info.new_articles_count or 0 }}
+                                            {% else %}
+                                                0
+                                            {% endif %}
+                                        </h3>
+                                        <small>New Articles (Current Iteration)</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card bg-success text-white">
+                                    <div class="card-body text-center">
+                                        <h3 class="mb-0">
+                                            {% if workflow_info %}
+                                                {{ workflow_info.content_approved_count or 0 }}
+                                            {% else %}
+                                                0
+                                            {% endif %}
+                                        </h3>
+                                        <small>Content Approved Papers</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {% if conf_rank_not_possible %}
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            <strong>Warning:</strong> This step cannot be executed because Step 2 (Get BibTeX) was skipped. 
+                            Venue ranking requires BibTeX data to extract venue information. You can skip this step to continue to the next step.
+                        </div>
+                        {% else %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> 
+                            This step helps you assign ranks to venues (conferences/journals) that aren't already in the database. For each venue, you can see similar venues with their ranks, search Scimago and Core Table databases, and then assign a rank.
+                        </div>
+                        {% endif %}
+
+                        <!-- Initial Setup -->
+                        <div id="setupSection">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="iteration" class="form-label">
+                                        <i class="fas fa-list-ol"></i> Iteration <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="number" class="form-control" id="iteration" name="iteration" 
+                                           value="{{ default_iteration }}" min="0" required>
+                                    <div class="form-text">Iteration number to process venues from</div>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-primary btn-lg" id="loadVenuesBtn" {% if conf_rank_not_possible %}disabled{% endif %}>
+                                    <i class="fas fa-search"></i> Load Unindexed Venues
+                                </button>
+                                <button type="button" class="btn btn-warning btn-lg" id="skipStepBtn">
+                                    <i class="fas fa-forward"></i> Skip Step
+                                </button>
+                            </div>
+                            {% if conf_rank_not_possible %}
+                            <div class="alert alert-warning mt-3">
+                                <i class="fas fa-info-circle"></i> 
+                                This button is disabled because BibTeX step was skipped. Please skip this step to continue.
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- Progress Indicator -->
+                        <div id="progressSection" class="mt-4" style="display: none;">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5>Progress</h5>
+                                    <div class="progress mb-2" style="height: 30px;">
+                                        <div class="progress-bar" role="progressbar" id="progressBar" style="width: 0%">
+                                            <span id="progressText">0 / 0</span>
+                                        </div>
+                                    </div>
+                                    <p class="text-muted mb-0">
+                                        <span id="completedCount">0</span> venues processed, 
+                                        <span id="remainingCount">0</span> remaining
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Venue Ranking Interface -->
+                        <div id="venueSection" style="display: none;">
+                            <div class="card venue-card">
+                                <div class="card-header bg-secondary text-white">
+                                    <h4 class="mb-0">
+                                        <i class="fas fa-building"></i> 
+                                        <span id="currentVenueName">Loading...</span>
+                                    </h4>
+                                </div>
+                                <div class="card-body">
+                                    <!-- Similar Venues -->
+                                    <div id="similarVenuesSection" class="mb-4">
+                                        <h5><i class="fas fa-search-plus"></i> Similar Venues</h5>
+                                        <div id="similarVenuesLoading" class="text-center">
+                                            <div class="spinner-border spinner-border-sm" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                            Searching for similar venues...
+                                        </div>
+                                        <div id="similarVenuesList"></div>
+                                    </div>
+
+                                    <!-- Database Search Results -->
+                                    <div class="row mb-4">
+                                        <div class="col-md-4">
+                                            <h5><i class="fas fa-database"></i> Scimago Search</h5>
+                                            <div id="scimagoLoading" class="text-center">
+                                                <div class="spinner-border spinner-border-sm" role="status">
+                                                    <span class="visually-hidden">Loading...</span>
+                                                </div>
+                                            </div>
+                                            <div id="scimagoResult" class="database-result" style="display: none;"></div>
+                                            <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="searchScimagoBtn" style="display: none;">
+                                                <i class="fas fa-search"></i> Search Scimago
+                                            </button>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <h5><i class="fas fa-database"></i> Core Table Search</h5>
+                                            <div id="coreLoading" class="text-center">
+                                                <div class="spinner-border spinner-border-sm" role="status">
+                                                    <span class="visually-hidden">Loading...</span>
+                                                </div>
+                                            </div>
+                                            <div id="coreResult" class="database-result" style="display: none;"></div>
+                                            <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="searchCoreBtn" style="display: none;">
+                                                <i class="fas fa-search"></i> Search Core Table
+                                            </button>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <h5><i class="fab fa-google"></i> Google Search</h5>
+                                            <p class="text-muted small mb-3">Search for the conference on Google to find additional information.</p>
+                                            <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="searchGoogleBtn">
+                                                <i class="fab fa-google"></i> Search on Google
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Rank Selection -->
+                                    <div class="mb-4">
+                                        <h5><i class="fas fa-star"></i> Select Rank</h5>
+                                        <div class="mb-3">
+                                            {% for rank in venue_ranks %}
+                                            <button type="button" class="btn rank-badge rank-btn 
+                                                {% if rank == 'A*' %}btn-danger
+                                                {% elif rank == 'A' %}btn-warning
+                                                {% elif rank == 'B' %}btn-info
+                                                {% elif rank == 'C' %}btn-primary
+                                                {% elif rank == 'D' %}btn-secondary
+                                                {% elif rank.startswith('Q') %}btn-success
+                                                {% else %}btn-dark{% endif %}"
+                                                data-rank="{{ rank }}">
+                                                {{ rank }}
+                                            </button>
+                                            {% endfor %}
+                                        </div>
+                                        <div class="alert alert-warning" id="rankWarning" style="display: none;">
+                                            Please select a rank before proceeding.
+                                        </div>
+                                    </div>
+
+                                    <!-- Navigation Buttons -->
+                                    <div class="d-flex justify-content-between mb-3">
+                                        <button type="button" class="btn btn-secondary" id="prevVenueBtn" disabled>
+                                            <i class="fas fa-arrow-left"></i> Previous
+                                        </button>
+                                        <button type="button" class="btn btn-warning" id="skipBtn">
+                                            <i class="fas fa-forward"></i> Skip Step
+                                        </button>
+                                        <button type="button" class="btn btn-primary" id="saveAndNextBtn">
+                                            <i class="fas fa-save"></i> Save & Next
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Completion Message -->
+                        <div id="completionSection" class="alert alert-success" style="display: none;">
+                            <h4><i class="fas fa-check-circle"></i> All venues have been processed!</h4>
+                            <p>All unindexed venues have been assigned ranks. You can now proceed to the next step in the workflow.</p>
+                            <a href="{{ url_for('workflow_stage') }}" class="btn btn-success">
+                                <i class="fas fa-arrow-left"></i> Back to Workflow
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let unindexedVenues = [];
+        let currentVenueIndex = -1;
+        let selectedRank = null;
+
+        const loadVenuesBtn = document.getElementById('loadVenuesBtn');
+        const setupSection = document.getElementById('setupSection');
+        const progressSection = document.getElementById('progressSection');
+        const venueSection = document.getElementById('venueSection');
+        const completionSection = document.getElementById('completionSection');
+        const currentVenueName = document.getElementById('currentVenueName');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const completedCount = document.getElementById('completedCount');
+        const remainingCount = document.getElementById('remainingCount');
+        const prevVenueBtn = document.getElementById('prevVenueBtn');
+        const saveAndNextBtn = document.getElementById('saveAndNextBtn');
+
+        loadVenuesBtn.addEventListener('click', function() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            
+            if (isNaN(iteration) || iteration < 0) {
+                alert('Please enter a valid iteration number');
+                return;
+            }
+
+            loadVenuesBtn.disabled = true;
+            loadVenuesBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Loading...';
+
+            fetch(`/api/workflow/generate_conf_rank/unindexed_venues?iteration=${iteration}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        loadVenuesBtn.disabled = false;
+                        loadVenuesBtn.innerHTML = '<i class="fas fa-search"></i> Load Unindexed Venues';
+                        return;
+                    }
+
+                    unindexedVenues = data.unindexed_venues;
+                    
+                    if (unindexedVenues.length === 0) {
+                        alert('No unindexed venues found for this iteration. All venues already have ranks assigned.');
+                        loadVenuesBtn.disabled = false;
+                        loadVenuesBtn.innerHTML = '<i class="fas fa-search"></i> Load Unindexed Venues';
+                        return;
+                    }
+
+                    setupSection.style.display = 'none';
+                    progressSection.style.display = 'block';
+                    venueSection.style.display = 'block';
+                    currentVenueIndex = 0;
+                    loadCurrentVenue();
+                })
+                .catch(error => {
+                    alert('Error: ' + error.message);
+                    loadVenuesBtn.disabled = false;
+                    loadVenuesBtn.innerHTML = '<i class="fas fa-search"></i> Load Unindexed Venues';
+                });
+        });
+
+        function loadCurrentVenue() {
+            if (currentVenueIndex < 0 || currentVenueIndex >= unindexedVenues.length) {
+                // All venues processed
+                venueSection.style.display = 'none';
+                completionSection.style.display = 'block';
+                return;
+            }
+
+            const venue = unindexedVenues[currentVenueIndex];
+            currentVenueName.textContent = venue;
+            selectedRank = null;
+
+            // Reset UI
+            document.querySelectorAll('.rank-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('rankWarning').style.display = 'none';
+
+            // Update progress
+            // When viewing venue at currentVenueIndex, we've completed currentVenueIndex venues
+            // and are working on venue currentVenueIndex + 1 (1-based)
+            const completed = currentVenueIndex;
+            const total = unindexedVenues.length;
+            const remaining = total - completed - 1; // -1 because current venue is in progress
+            
+            // Progress percentage: completed venues / total
+            const progress = total > 0 ? ((completed + 1) / total) * 100 : 0;
+            progressBar.style.width = Math.min(progress, 100) + '%';
+            
+            // Progress text: show current venue number (1-based) out of total
+            progressText.textContent = `${completed + 1} / ${total}`;
+            completedCount.textContent = completed;
+            remainingCount.textContent = Math.max(remaining, 0);
+
+            // Update navigation buttons
+            prevVenueBtn.disabled = currentVenueIndex === 0;
+
+            // Load similar venues
+            loadSimilarVenues(venue);
+
+            // Load database searches
+            loadScimagoResult(venue);
+            loadCoreResult(venue);
+        }
+
+        function loadSimilarVenues(venue) {
+            const section = document.getElementById('similarVenuesSection');
+            const loading = document.getElementById('similarVenuesLoading');
+            const list = document.getElementById('similarVenuesList');
+
+            loading.style.display = 'block';
+            list.innerHTML = '';
+
+            fetch(`/api/workflow/generate_conf_rank/similar_venues?venue=${encodeURIComponent(venue)}`)
+                .then(response => response.json())
+                .then(data => {
+                    loading.style.display = 'none';
+                    
+                    if (data.error) {
+                        list.innerHTML = '<div class="alert alert-warning">Error loading similar venues: ' + data.error + '</div>';
+                        return;
+                    }
+
+                    if (data.similar_venues.length === 0) {
+                        list.innerHTML = '<div class="text-muted">No similar venues found in the database.</div>';
+                        return;
+                    }
+
+                    let html = '<div class="list-group">';
+                    data.similar_venues.forEach(sv => {
+                        html += `
+                            <div class="list-group-item">
+                                <strong>${escapeHtml(sv.venue)}</strong>
+                                <span class="badge bg-secondary ms-2">${escapeHtml(sv.rank)}</span>
+                                <small class="text-muted ms-2">(Similarity: ${sv.similarity})</small>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    list.innerHTML = html;
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    list.innerHTML = '<div class="alert alert-danger">Error: ' + error.message + '</div>';
+                });
+        }
+
+        function loadScimagoResult(venue) {
+            const loading = document.getElementById('scimagoLoading');
+            const result = document.getElementById('scimagoResult');
+            const searchBtn = document.getElementById('searchScimagoBtn');
+
+            loading.style.display = 'block';
+            result.style.display = 'none';
+            searchBtn.style.display = 'none';
+
+            fetch(`/api/workflow/generate_conf_rank/search_scimago?venue=${encodeURIComponent(venue)}`)
+                .then(response => response.json())
+                .then(data => {
+                    loading.style.display = 'none';
+                    result.style.display = 'block';
+                    searchBtn.style.display = 'inline-block';
+
+                    if (data.error) {
+                        result.textContent = 'Error: ' + data.error;
+                        return;
+                    }
+
+                    if (data.found) {
+                        result.textContent = data.data;
+                    } else {
+                        result.textContent = data.data || 'Not Found in database';
+                    }
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    result.style.display = 'block';
+                    result.textContent = 'Error: ' + error.message;
+                    searchBtn.style.display = 'inline-block';
+                });
+        }
+
+        function loadCoreResult(venue) {
+            const loading = document.getElementById('coreLoading');
+            const result = document.getElementById('coreResult');
+            const searchBtn = document.getElementById('searchCoreBtn');
+
+            loading.style.display = 'block';
+            result.style.display = 'none';
+            searchBtn.style.display = 'none';
+
+            fetch(`/api/workflow/generate_conf_rank/search_core?venue=${encodeURIComponent(venue)}`)
+                .then(response => response.json())
+                .then(data => {
+                    loading.style.display = 'none';
+                    result.style.display = 'block';
+                    searchBtn.style.display = 'inline-block';
+
+                    if (data.error) {
+                        result.textContent = 'Error: ' + data.error;
+                        return;
+                    }
+
+                    if (data.found) {
+                        result.textContent = data.data;
+                    } else {
+                        result.textContent = data.data || 'Not Found in database';
+                    }
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    result.style.display = 'block';
+                    result.textContent = 'Error: ' + error.message;
+                    searchBtn.style.display = 'inline-block';
+                });
+        }
+
+        // Rank selection
+        document.querySelectorAll('.rank-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.rank-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                selectedRank = this.dataset.rank;
+                document.getElementById('rankWarning').style.display = 'none';
+            });
+        });
+
+        // Re-search buttons
+        document.getElementById('searchScimagoBtn').addEventListener('click', function() {
+            const venue = unindexedVenues[currentVenueIndex];
+            loadScimagoResult(venue);
+        });
+
+        document.getElementById('searchCoreBtn').addEventListener('click', function() {
+            const venue = unindexedVenues[currentVenueIndex];
+            loadCoreResult(venue);
+        });
+
+        // Google search button
+        document.getElementById('searchGoogleBtn').addEventListener('click', function() {
+            if (currentVenueIndex >= 0 && currentVenueIndex < unindexedVenues.length) {
+                const venue = unindexedVenues[currentVenueIndex];
+                // Encode the venue name for URL
+                const searchQuery = encodeURIComponent(venue);
+                // Open Google search in a new tab
+                window.open(`https://www.google.com/search?q=${searchQuery}`, '_blank');
+            }
+        });
+
+        // Navigation
+        prevVenueBtn.addEventListener('click', function() {
+            if (currentVenueIndex > 0) {
+                currentVenueIndex--;
+                loadCurrentVenue();
+            }
+        });
+
+        saveAndNextBtn.addEventListener('click', function() {
+            if (!selectedRank) {
+                document.getElementById('rankWarning').style.display = 'block';
+                return;
+            }
+
+            const venue = unindexedVenues[currentVenueIndex];
+            
+            saveAndNextBtn.disabled = true;
+            saveAndNextBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Saving...';
+
+            fetch('/api/workflow/generate_conf_rank/save_rank', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    venue: venue,
+                    rank: selectedRank
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error saving rank: ' + data.error);
+                    saveAndNextBtn.disabled = false;
+                    saveAndNextBtn.innerHTML = '<i class="fas fa-save"></i> Save & Next';
+                    return;
+                }
+
+                // Move to next venue
+                currentVenueIndex++;
+                loadCurrentVenue();
+                saveAndNextBtn.disabled = false;
+                saveAndNextBtn.innerHTML = '<i class="fas fa-save"></i> Save & Next';
+            })
+            .catch(error => {
+                alert('Error: ' + error.message);
+                saveAndNextBtn.disabled = false;
+                saveAndNextBtn.innerHTML = '<i class="fas fa-save"></i> Save & Next';
+            });
+        });
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Skip step function
+        function skipStep() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            if (confirm('Are you sure you want to skip Step 3: Assign Venue Ranks? This will mark it as skipped and move to the next step.')) {
+                fetch('/api/workflow/skip_step', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        step_name: 'Step 3: Assign Venue Ranks',
+                        iteration: iteration || null
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Step skipped successfully!');
+                        window.location.href = '/workflow';
+                    } else {
+                        alert('Error: ' + (data.error || 'Failed to skip step'));
+                    }
+                })
+                .catch(error => {
+                    alert('Error: ' + error.message);
+                });
+            }
+        }
+
+        // Skip step button in setup section
+        document.getElementById('skipStepBtn').addEventListener('click', skipStep);
+
+        // Skip step button in venue section (when venues are loaded)
+        document.getElementById('skipBtn').addEventListener('click', skipStep);
+    </script>
+</body>
+</html>
+
