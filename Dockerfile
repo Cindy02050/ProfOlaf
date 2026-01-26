@@ -13,9 +13,13 @@ WORKDIR /app
 RUN git clone https://github.com/sr-lab/ProfOlaf.git .
 RUN git pull origin main
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
+# Install Python dependencies with increased timeout for large packages
+# The timeout is set high (5000 seconds) to handle large CUDA packages like nvidia-cudnn-cu12 (571 MB)
+# Using retry logic in case of network timeouts
+RUN pip install --default-timeout=5000 --no-cache-dir -r requirements.txt || \
+    (echo "First attempt failed, retrying with longer timeout..." && \
+     sleep 5 && \
+     pip install --default-timeout=10000 --no-cache-dir -r requirements.txt)
 # Create a startup script that allows users to choose how to run the tool
 RUN echo '#!/bin/bash\n\
 echo "===================================="\n\

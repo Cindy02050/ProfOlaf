@@ -3574,6 +3574,55 @@ def solve_title_disagreements_page():
                          workflow_info=workflow_info)
 
 
+@app.route('/api/workflow/solve_title_disagreements/get_raters', methods=['POST'])
+def get_title_raters():
+    """Get list of raters from database files"""
+    try:
+        data = request.get_json()
+        db_paths = data.get('db_paths', [])
+        
+        if not db_paths or len(db_paths) == 0:
+            return jsonify({'error': 'At least 1 database path is required'}), 400
+        
+        # Validate all databases exist
+        for db_path in db_paths:
+            if not os.path.exists(db_path):
+                return jsonify({'error': f'Database not found: {db_path}'}), 400
+        
+        # Get raters from each database
+        raters_info = []
+        for db_path in db_paths:
+            try:
+                db_manager = DBManager(db_path)
+                # Get distinct raters from screening table
+                db_manager.cursor.execute("SELECT DISTINCT rater FROM screening WHERE rater IS NOT NULL AND rater != ''")
+                raters = [row[0] for row in db_manager.cursor.fetchall()]
+                if not raters:
+                    # Fallback: try to get rater from search_conf if available
+                    search_conf = load_search_conf()
+                    rater = search_conf.get('rater', 'default') if search_conf else 'default'
+                    raters = [rater]
+                
+                db_name = os.path.basename(db_path)
+                raters_info.append({
+                    'db_path': db_path,
+                    'db_name': db_name,
+                    'raters': raters
+                })
+            except Exception as e:
+                return jsonify({'error': f'Error reading database {db_path}: {str(e)}'}), 400
+        
+        return jsonify({
+            'success': True,
+            'raters_info': raters_info
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/workflow/solve_title_disagreements/merge_databases', methods=['POST'])
 def merge_title_databases():
     """Merge multiple databases into one - copy all tables from first DB, merge screening tables from all DBs"""
@@ -3906,6 +3955,55 @@ def solve_content_disagreements_page():
                          default_iteration=default_iteration,
                          main_db_path=main_db_path,
                          workflow_info=workflow_info)
+
+
+@app.route('/api/workflow/solve_content_disagreements/get_raters', methods=['POST'])
+def get_content_raters():
+    """Get list of raters from database files"""
+    try:
+        data = request.get_json()
+        db_paths = data.get('db_paths', [])
+        
+        if not db_paths or len(db_paths) == 0:
+            return jsonify({'error': 'At least 1 database path is required'}), 400
+        
+        # Validate all databases exist
+        for db_path in db_paths:
+            if not os.path.exists(db_path):
+                return jsonify({'error': f'Database not found: {db_path}'}), 400
+        
+        # Get raters from each database
+        raters_info = []
+        for db_path in db_paths:
+            try:
+                db_manager = DBManager(db_path)
+                # Get distinct raters from screening table
+                db_manager.cursor.execute("SELECT DISTINCT rater FROM screening WHERE rater IS NOT NULL AND rater != ''")
+                raters = [row[0] for row in db_manager.cursor.fetchall()]
+                if not raters:
+                    # Fallback: try to get rater from search_conf if available
+                    search_conf = load_search_conf()
+                    rater = search_conf.get('rater', 'default') if search_conf else 'default'
+                    raters = [rater]
+                
+                db_name = os.path.basename(db_path)
+                raters_info.append({
+                    'db_path': db_path,
+                    'db_name': db_name,
+                    'raters': raters
+                })
+            except Exception as e:
+                return jsonify({'error': f'Error reading database {db_path}: {str(e)}'}), 400
+        
+        return jsonify({
+            'success': True,
+            'raters_info': raters_info
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/workflow/solve_content_disagreements/merge_databases', methods=['POST'])

@@ -2,6 +2,7 @@ import csv
 import krippendorff
 import numpy as np
 import json
+from collections import defaultdict, Counter
 
 possible_values = ["Program Repair",
 "Fault Localization",
@@ -57,6 +58,9 @@ def fix_predictions(predicted, ground_truth):
     2. Swap "code generation" and "code completion" if they're mixed up
     3. Add "code performance" when "code optimization" is present and ground truth has both
     4. Add "benchmarks" when it's in ground truth but not in predictions (model often misses it)
+    5. Replace "code completion" with "code generation" when ground truth has "code generation"
+    6. Replace "code understanding" with "code generation" when ground truth has "code generation"
+    7. Replace "program repair" with "code generation" when ground truth has "code generation"
     
     Args:
         predicted: List of predicted topic names
@@ -133,6 +137,27 @@ def fix_predictions(predicted, ground_truth):
     if has_benchmarks_truth and not has_benchmarks_pred:
         # Add benchmarks (use the exact case from possible_values)
         fixed.append(benchmarks)
+    
+    # Pattern 5-7: Replace incorrect labels with "code generation" when ground truth has "code generation"
+    fixed_set = get_fixed_set()
+    has_code_gen_truth = code_gen_norm in ground_truth_set
+    
+    if has_code_gen_truth:
+        # Pattern 5: Replace "code completion" with "code generation"
+        if code_comp_norm in fixed_set and code_gen_norm not in fixed_set:
+            fixed = [code_gen if p.lower().strip() == code_comp_norm else p for p in fixed]
+        
+        # Pattern 6: Replace "code understanding" with "code generation"
+        code_understanding = "Code Understanding"
+        code_understanding_norm = code_understanding.lower().strip()
+        if code_understanding_norm in fixed_set and code_gen_norm not in fixed_set:
+            fixed = [code_gen if p.lower().strip() == code_understanding_norm else p for p in fixed]
+        
+        # Pattern 7: Replace "program repair" with "code generation"
+        program_repair = "Program Repair"
+        program_repair_norm = program_repair.lower().strip()
+        if program_repair_norm in fixed_set and code_gen_norm not in fixed_set:
+            fixed = [code_gen if p.lower().strip() == program_repair_norm else p for p in fixed]
     
     return fixed
 
@@ -327,6 +352,186 @@ def parse_rater_data(data):
         parsed_data[paper_name] = response_parsed
     return parsed_data
 
+def identify_mislabeling_patterns(topicgpt_data, rater_data, min_occurrences=3):
+    """
+    Analyze predictions and ground truth to identify common mislabeling patterns.
+    
+    Args:
+        topicgpt_data: Dict with filename as key and list of predicted topics as value
+        rater_data: Dict with filename as key and list of ground truth topics as value
+        min_occurrences: Minimum number of occurrences to report a pattern
+    
+    Returns:
+        dict: Dictionary containing identified patterns
+    """
+    # Normalize keys
+    topicgpt_data = {k.lower(): v for k, v in topicgpt_data.items()}
+    rater_data = {k.lower(): v for k, v in rater_data.items()}
+    
+    common_files = set(topicgpt_data.keys()).intersection(set(rater_data.keys()))
+    
+    # Statistics tracking
+    false_positives = Counter()  # Predicted but not in ground truth
+    false_negatives = Counter()  # In ground truth but not predicted
+    confusion_matrix = defaultdict(lambda: defaultdict(int))  # predicted -> ground_truth -> count
+    label_frequency_pred = Counter()
+    label_frequency_truth = Counter()
+    
+    for filename in common_files:
+        predicted = topicgpt_data[filename]
+        ground_truth = rater_data[filename]
+        
+        # Normalize for comparison
+        predicted_set = set([p.lower().strip() for p in predicted])
+        ground_truth_set = set([g.lower().strip() for g in ground_truth])
+        
+        # Track label frequencies
+        for label in predicted_set:
+            label_frequency_pred[label] += 1
+        for label in ground_truth_set:
+            label_frequency_truth[label] += 1
+        
+        # False positives: predicted but not in ground truth
+        for pred_label in predicted_set:
+            if pred_label not in ground_truth_set:
+                false_positives[pred_label] += 1
+                # Track what labels were actually in ground truth when this was predicted
+                for truth_label in ground_truth_set:
+                    confusion_matrix[pred_label][truth_label] += 1
+        
+        # False negatives: in ground truth but not predicted
+        for truth_label in ground_truth_set:
+            if truth_label not in predicted_set:
+                false_negatives[truth_label] += 1
+    
+    # Calculate precision/recall per label
+    label_metrics = {}
+    all_labels = set(list(false_positives.keys()) + list(false_negatives.keys()) + 
+                     list(label_frequency_pred.keys()) + list(label_frequency_truth.keys()))
+    
+    for label in all_labels:
+        tp = label_frequency_pred[label] - false_positives[label]  # True positives
+        fp = false_positives[label]  # False positives
+        fn = false_negatives[label]  # False negatives
+        
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        label_metrics[label] = {
+            'true_positives': tp,
+            'false_positives': fp,
+            'false_negatives': fn,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'predicted_count': label_frequency_pred[label],
+            'ground_truth_count': label_frequency_truth[label]
+        }
+    
+    # Find top confusion patterns
+    top_confusions = []
+    for pred_label, truth_labels in confusion_matrix.items():
+        for truth_label, count in truth_labels.items():
+            if count >= min_occurrences:
+                top_confusions.append({
+                    'predicted': pred_label,
+                    'actual': truth_label,
+                    'count': count,
+                    'percentage': (count / false_positives[pred_label] * 100) if false_positives[pred_label] > 0 else 0
+                })
+    
+    # Sort by count
+    top_confusions.sort(key=lambda x: x['count'], reverse=True)
+    
+    return {
+        'false_positives': dict(false_positives.most_common()),
+        'false_negatives': dict(false_negatives.most_common()),
+        'label_metrics': label_metrics,
+        'confusion_patterns': top_confusions,
+        'label_frequency_pred': dict(label_frequency_pred),
+        'label_frequency_truth': dict(label_frequency_truth)
+    }
+
+def print_mislabeling_patterns(patterns, min_occurrences=3):
+    """
+    Print identified mislabeling patterns in a readable format.
+    
+    Args:
+        patterns: Dictionary returned by identify_mislabeling_patterns
+        min_occurrences: Minimum occurrences to display
+    """
+    print("\n" + "="*80)
+    print("MISLABELING PATTERN ANALYSIS")
+    print("="*80)
+    
+    # False Positives (often predicted but shouldn't be)
+    print("\n" + "-"*80)
+    print("FALSE POSITIVES (Predicted but not in Ground Truth)")
+    print("-"*80)
+    false_pos = [(label, count) for label, count in patterns['false_positives'].items() 
+                 if count >= min_occurrences]
+    false_pos.sort(key=lambda x: x[1], reverse=True)
+    
+    if false_pos:
+        print(f"\n{'Label':<40} {'Count':<10} {'% of Predictions':<15}")
+        print("-" * 65)
+        for label, count in false_pos:
+            total_pred = patterns['label_frequency_pred'].get(label, 0)
+            percentage = (count / total_pred * 100) if total_pred > 0 else 0
+            print(f"{label:<40} {count:<10} {percentage:>6.1f}%")
+    else:
+        print(f"\nNo false positives with {min_occurrences}+ occurrences found.")
+    
+    # False Negatives (often missed)
+    print("\n" + "-"*80)
+    print("FALSE NEGATIVES (In Ground Truth but not Predicted)")
+    print("-"*80)
+    false_neg = [(label, count) for label, count in patterns['false_negatives'].items() 
+                 if count >= min_occurrences]
+    false_neg.sort(key=lambda x: x[1], reverse=True)
+    
+    if false_neg:
+        print(f"\n{'Label':<40} {'Count':<10} {'% of Ground Truth':<15}")
+        print("-" * 65)
+        for label, count in false_neg:
+            total_truth = patterns['label_frequency_truth'].get(label, 0)
+            percentage = (count / total_truth * 100) if total_truth > 0 else 0
+            print(f"{label:<40} {count:<10} {percentage:>6.1f}%")
+    else:
+        print(f"\nNo false negatives with {min_occurrences}+ occurrences found.")
+    
+    # Confusion Patterns
+    print("\n" + "-"*80)
+    print("CONFUSION PATTERNS (When X was predicted, Y was actually in ground truth)")
+    print("-"*80)
+    if patterns['confusion_patterns']:
+        print(f"\n{'Predicted':<30} {'Actually Was':<30} {'Count':<10} {'% of FP':<10}")
+        print("-" * 80)
+        for conf in patterns['confusion_patterns'][:20]:  # Top 20
+            print(f"{conf['predicted']:<30} {conf['actual']:<30} {conf['count']:<10} {conf['percentage']:>6.1f}%")
+    else:
+        print(f"\nNo confusion patterns with {min_occurrences}+ occurrences found.")
+    
+    # Per-label metrics (worst performing)
+    print("\n" + "-"*80)
+    print("WORST PERFORMING LABELS (by F1 Score)")
+    print("-"*80)
+    label_metrics = patterns['label_metrics']
+    worst_labels = [(label, metrics) for label, metrics in label_metrics.items() 
+                    if metrics['predicted_count'] + metrics['ground_truth_count'] >= min_occurrences]
+    worst_labels.sort(key=lambda x: x[1]['f1'])
+    
+    if worst_labels:
+        print(f"\n{'Label':<40} {'Precision':<12} {'Recall':<12} {'F1':<12} {'TP':<6} {'FP':<6} {'FN':<6}")
+        print("-" * 100)
+        for label, metrics in worst_labels[:15]:  # Top 15 worst
+            print(f"{label:<40} {metrics['precision']:<12.3f} {metrics['recall']:<12.3f} "
+                  f"{metrics['f1']:<12.3f} {metrics['true_positives']:<6} "
+                  f"{metrics['false_positives']:<6} {metrics['false_negatives']:<6}")
+    
+    print("\n" + "="*80)
+
 def create_fixed_predictions(topicgpt_data, rater_data):
     """
     Create fixed predictions by applying pattern-based corrections.
@@ -391,11 +596,14 @@ def compare_evaluations(original_results, fixed_results):
     print("\n" + "="*60)
     print("PATTERN IMPACT SUMMARY")
     print("="*60)
-    print("The fixes address four patterns:")
+    print("The fixes address seven patterns:")
     print("1. Removed 'Human-AI Collaboration' when over-valued (not in ground truth)")
     print("2. Swapped 'Code Generation' and 'Code Completion' when mixed up")
     print("3. Added 'Code Performance' when 'Code Optimization' present and ground truth has both")
     print("4. Added 'Benchmarks' when in ground truth but missing from predictions (often missed when not main focus)")
+    print("5. Replaced 'Code Completion' with 'Code Generation' when ground truth has 'Code Generation'")
+    print("6. Replaced 'Code Understanding' with 'Code Generation' when ground truth has 'Code Generation'")
+    print("7. Replaced 'Program Repair' with 'Code Generation' when ground truth has 'Code Generation'")
     print("="*60)
 
 # Load and parse data
@@ -403,6 +611,13 @@ topicgpt_data = read_jsonl_file('article_topics_results/corrected_assignments.js
 topicgpt_data = parse_topicgpt_data(topicgpt_data)
 rater_data = read_csv_file('article_topics_results/ta_ground_truth.csv')
 rater_data = parse_rater_data(rater_data)
+
+# Identify mislabeling patterns
+print("="*60)
+print("IDENTIFYING MISLABELING PATTERNS")
+print("="*60)
+mislabeling_patterns = identify_mislabeling_patterns(topicgpt_data, rater_data, min_occurrences=3)
+print_mislabeling_patterns(mislabeling_patterns, min_occurrences=3)
 
 # Run original evaluation
 print("="*60)

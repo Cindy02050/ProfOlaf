@@ -144,7 +144,7 @@ For more information, see the project documentation or contact support.
 
 def parse_args():
     parser = argparse.ArgumentParser(description='PDF Topic Modeling System with TopicGPT and LangChain - Single Step Execution (Data extraction is automatic): Level 1')
-    parser.add_argument('pdf_folder', help='Folder containing PDF files to process', default=analysis_conf["articles_folder"])
+    parser.add_argument('pdf_folder', help='Folder containing PDF files to process')
     parser.add_argument('--output-dir', help='Output directory to save results and intermediate files', default=analysis_conf["output_path"])
     parser.add_argument('--config', help='Configuration file for LLM settings', default="paper_analysis/llm_config.json")
     parser.add_argument('--provider', help='LLM provider to use', default="openai")

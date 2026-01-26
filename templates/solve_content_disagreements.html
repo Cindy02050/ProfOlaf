@@ -276,6 +276,33 @@
                             <i class="fas fa-exclamation-circle"></i> <span id="errorMessage"></span>
                         </div>
 
+                        <!-- Confirmation Modal -->
+                        <div class="modal fade" id="confirmMergeModal" tabindex="-1" aria-labelledby="confirmMergeModalLabel" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="confirmMergeModalLabel">
+                                            <i class="fas fa-exclamation-triangle"></i> Confirm Merge and Find Disagreements
+                                        </h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p>You are about to merge the following databases and find disagreements:</p>
+                                        <div id="ratersList" class="mb-3">
+                                            <!-- Rater information will be populated here -->
+                                        </div>
+                                        <p class="text-muted">Do you want to proceed?</p>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="button" class="btn btn-primary" id="confirmMergeBtn">
+                                            <i class="fas fa-check"></i> Confirm
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Completion Message -->
                         <div id="completionSection" class="alert alert-success mt-3" style="display: none;">
                             <i class="fas fa-check-circle"></i> All disagreements have been resolved!
@@ -374,35 +401,13 @@
             });
         }
 
-        // Find disagreements
-        document.getElementById('findDisagreementsBtn').addEventListener('click', function() {
-            const iteration = parseInt(document.getElementById('iteration').value);
-            if (isNaN(iteration) || iteration < 0) {
-                showError('Please enter a valid iteration number');
-                return;
-            }
+        // Store merge parameters for confirmation
+        let pendingMergeParams = null;
 
-            // Collect database paths
-            const dbInputs = document.querySelectorAll('.db-path-input');
-            dbPaths = [];
-            for (let input of dbInputs) {
-                const path = input.value.trim();
-                if (path) {
-                    dbPaths.push(path);
-                }
-            }
-
-            if (dbPaths.length < 1) {
-                showError('Please add at least 1 database file');
-                return;
-            }
-
-            const mergedDbName = document.getElementById('mergedDbName').value.trim();
-            if (!mergedDbName) {
-                showError('Please enter a name for the merged database');
-                return;
-            }
-
+        // Function to actually perform the merge
+        function performMerge() {
+            const { iteration, dbPaths, mergedDbName } = pendingMergeParams;
+            
             currentIteration = iteration;
 
             // Show loading spinner
@@ -502,6 +507,93 @@
                 showError('Error finding disagreements: ' + error.message);
                 document.getElementById('setupSection').style.display = 'block';
             });
+        }
+
+        // Find disagreements - button click handler
+        document.getElementById('findDisagreementsBtn').addEventListener('click', function() {
+            const iteration = parseInt(document.getElementById('iteration').value);
+            if (isNaN(iteration) || iteration < 0) {
+                showError('Please enter a valid iteration number');
+                return;
+            }
+
+            // Collect database paths
+            const dbInputs = document.querySelectorAll('.db-path-input');
+            dbPaths = [];
+            for (let input of dbInputs) {
+                const path = input.value.trim();
+                if (path) {
+                    dbPaths.push(path);
+                }
+            }
+
+            if (dbPaths.length < 1) {
+                showError('Please add at least 1 database file');
+                return;
+            }
+
+            const mergedDbName = document.getElementById('mergedDbName').value.trim();
+            if (!mergedDbName) {
+                showError('Please enter a name for the merged database');
+                return;
+            }
+
+            // Store parameters for later use
+            pendingMergeParams = {
+                iteration: iteration,
+                dbPaths: dbPaths,
+                mergedDbName: mergedDbName
+            };
+
+            // Get raters from databases and show confirmation modal
+            fetch('/api/workflow/solve_content_disagreements/get_raters', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    db_paths: dbPaths
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    showError(data.error || 'Failed to get raters from databases');
+                    return;
+                }
+
+                // Populate raters list in modal
+                const ratersListDiv = document.getElementById('ratersList');
+                let html = '<ul class="list-group">';
+                data.raters_info.forEach((dbInfo, index) => {
+                    html += `<li class="list-group-item">`;
+                    html += `<strong>${dbInfo.db_name}</strong><br>`;
+                    html += `<small class="text-muted">${dbInfo.db_path}</small><br>`;
+                    html += `<span class="badge bg-primary mt-1">Raters: ${dbInfo.raters.join(', ') || 'default'}</span>`;
+                    html += `</li>`;
+                });
+                html += '</ul>';
+                ratersListDiv.innerHTML = html;
+
+                // Show modal
+                const modal = new bootstrap.Modal(document.getElementById('confirmMergeModal'));
+                modal.show();
+            })
+            .catch(error => {
+                showError('Error getting raters: ' + error.message);
+            });
+        });
+
+        // Confirm merge button
+        document.getElementById('confirmMergeBtn').addEventListener('click', function() {
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('confirmMergeModal'));
+            modal.hide();
+            
+            // Perform the merge
+            if (pendingMergeParams) {
+                performMerge();
+            }
         });
 
         function loadCurrentDisagreement() {
