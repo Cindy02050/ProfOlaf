@@ -19,16 +19,14 @@ pydantic==2.12.5
 pypdf==6.6.2
 PyPDF2==3.0.1
 python-dotenv==1.2.1
-PyYAML==6.0.2
 PyYAML==6.0.3
-Requests==2.32.5
 rich==14.3.1
 scholarly @ git+https://github.com/timafonso/scholarly-multiple-pub-versions.git
 scikit_learn==1.8.0
 snowballstemmer==3.0.1
 tabulate==0.9.0
 tiktoken==0.7.0
-topicgpt_python @ git+https://github.com/Nfsaavedra/topicGPT.git@41f35b40b97351475e23c06c98be65b4a9ddb186
+topicgpt_python @ git+https://github.com/Nfsaavedra/topicGPT.git@c305f473f08e106af8b1bf9ccda8853102b2407f
 tqdm==4.66.1
 urlextract==1.9.0
 Werkzeug==3.1.5
