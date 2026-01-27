@@ -10,10 +10,10 @@ langchain_community==0.4.1
 langchain_google_genai==4.2.0
 langchain_openai==1.1.7
 langdetect==1.0.9
-numpy==2.4.1
-openai==2.15.0
+numpy==1.26.4
+openai>=1.109.1,<2.0.0
 openrouter==0.1.1
-pandas==3.0.0
+pandas>=2.2.0
 prompt_toolkit==3.0.52
 pydantic==2.12.5
 pypdf==6.6.2
@@ -23,11 +23,11 @@ requests>=2.32.5
 PyYAML==6.0.3
 rich==14.3.1
 scholarly @ git+https://github.com/timafonso/scholarly-multiple-pub-versions.git
-scikit_learn==1.8.0
+scikit_learn==1.7.2
 snowballstemmer==3.0.1
 tabulate==0.9.0
 tiktoken==0.7.0
 topicgpt_python @ git+https://github.com/Nfsaavedra/topicGPT.git@c305f473f08e106af8b1bf9ccda8853102b2407f
-tqdm==4.66.1
+tqdm==4.67.0
 urlextract==1.9.0
 Werkzeug==3.1.5
