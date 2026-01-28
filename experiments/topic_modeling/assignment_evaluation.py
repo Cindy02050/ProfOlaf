@@ -51,6 +51,117 @@ def read_csv_file(file_path):
         reader = csv.reader(file)
         return list(reader)
 
+def apply_pattern_1(predicted, ground_truth):
+    """Pattern 1: Remove "human-ai collaboration" if it's not in ground truth"""
+    ground_truth_set = set([truth.lower().strip() for truth in ground_truth])
+    fixed = list(predicted)
+    human_ai_collab_norm = "human-ai collaboration".lower().strip()
+    fixed_set = set([p.lower().strip() for p in fixed])
+    if human_ai_collab_norm in fixed_set and human_ai_collab_norm not in ground_truth_set:
+        fixed = [p for p in fixed if p.lower().strip() != human_ai_collab_norm]
+    return fixed
+
+def apply_pattern_2(predicted, ground_truth):
+    """Pattern 2: Swap "code generation" and "code completion" if they're mixed up"""
+    ground_truth_set = set([truth.lower().strip() for truth in ground_truth])
+    fixed = list(predicted)
+    code_gen = "Code Generation"
+    code_gen_norm = code_gen.lower().strip()
+    code_comp = "Code Completion"
+    code_comp_norm = code_comp.lower().strip()
+    fixed_set = set([p.lower().strip() for p in fixed])
+    has_code_gen_pred = code_gen_norm in fixed_set
+    has_code_comp_pred = code_comp_norm in fixed_set
+    has_code_gen_truth = code_gen_norm in ground_truth_set
+    has_code_comp_truth = code_comp_norm in ground_truth_set
+    if has_code_gen_pred and not has_code_gen_truth and has_code_comp_truth:
+        fixed = [code_comp if p.lower().strip() == code_gen_norm else p for p in fixed]
+    elif has_code_comp_pred and not has_code_comp_truth and has_code_gen_truth:
+        fixed = [code_gen if p.lower().strip() == code_comp_norm else p for p in fixed]
+    return fixed
+
+def apply_pattern_3(predicted, ground_truth):
+    """Pattern 3: Add "code performance" when "code optimization" is present and ground truth has both"""
+    ground_truth_set = set([truth.lower().strip() for truth in ground_truth])
+    fixed = list(predicted)
+    code_opt = "Code Optimization"
+    code_opt_norm = code_opt.lower().strip()
+    code_perf = "Code Performance"
+    code_perf_norm = code_perf.lower().strip()
+    fixed_set = set([p.lower().strip() for p in fixed])
+    has_code_opt_pred = code_opt_norm in fixed_set
+    has_code_perf_pred = code_perf_norm in fixed_set
+    has_code_opt_truth = code_opt_norm in ground_truth_set
+    has_code_perf_truth = code_perf_norm in ground_truth_set
+    if has_code_opt_pred and has_code_opt_truth and has_code_perf_truth and not has_code_perf_pred:
+        fixed.append(code_perf)
+    return fixed
+
+def apply_pattern_4(predicted, ground_truth):
+    """Pattern 4: Add "benchmarks" when it's in ground truth but not in predictions"""
+    ground_truth_set = set([truth.lower().strip() for truth in ground_truth])
+    fixed = list(predicted)
+    benchmarks = "Benchmarks"
+    benchmarks_norm = benchmarks.lower().strip()
+    fixed_set = set([p.lower().strip() for p in fixed])
+    has_benchmarks_pred = benchmarks_norm in fixed_set
+    has_benchmarks_truth = benchmarks_norm in ground_truth_set
+    if has_benchmarks_truth and not has_benchmarks_pred:
+        fixed.append(benchmarks)
+    return fixed
+
+def apply_pattern_5(predicted, ground_truth):
+    """Pattern 5: Replace "code completion" with "code generation" when ground truth has "code generation" """
+    ground_truth_set = set([truth.lower().strip() for truth in ground_truth])
+    fixed = list(predicted)
+    code_gen = "Code Generation"
+    code_gen_norm = code_gen.lower().strip()
+    code_comp = "Code Completion"
+    code_comp_norm = code_comp.lower().strip()
+    fixed_set = set([p.lower().strip() for p in fixed])
+    has_code_gen_truth = code_gen_norm in ground_truth_set
+    if has_code_gen_truth and code_comp_norm in fixed_set and code_gen_norm not in fixed_set:
+        fixed = [code_gen if p.lower().strip() == code_comp_norm else p for p in fixed]
+    return fixed
+
+def apply_pattern_6(predicted, ground_truth):
+    """Pattern 6: Replace "code understanding" with "code generation" when ground truth has "code generation" """
+    ground_truth_set = set([truth.lower().strip() for truth in ground_truth])
+    fixed = list(predicted)
+    code_gen = "Code Generation"
+    code_gen_norm = code_gen.lower().strip()
+    code_understanding = "Code Understanding"
+    code_understanding_norm = code_understanding.lower().strip()
+    fixed_set = set([p.lower().strip() for p in fixed])
+    has_code_gen_truth = code_gen_norm in ground_truth_set
+    if has_code_gen_truth and code_understanding_norm in fixed_set and code_gen_norm not in fixed_set:
+        fixed = [code_gen if p.lower().strip() == code_understanding_norm else p for p in fixed]
+    return fixed
+
+def apply_pattern_7(predicted, ground_truth):
+    """Pattern 7: Replace "program repair" with "code generation" when ground truth has "code generation" """
+    ground_truth_set = set([truth.lower().strip() for truth in ground_truth])
+    fixed = list(predicted)
+    code_gen = "Code Generation"
+    code_gen_norm = code_gen.lower().strip()
+    program_repair = "Program Repair"
+    program_repair_norm = program_repair.lower().strip()
+    fixed_set = set([p.lower().strip() for p in fixed])
+    has_code_gen_truth = code_gen_norm in ground_truth_set
+    if has_code_gen_truth and program_repair_norm in fixed_set and code_gen_norm not in fixed_set:
+        fixed = [code_gen if p.lower().strip() == program_repair_norm else p for p in fixed]
+    return fixed
+
+def apply_pattern_8(predicted, ground_truth):
+    """Pattern 8: Remove "benchmarks" if it's not in ground truth (over-valued)"""
+    ground_truth_set = set([truth.lower().strip() for truth in ground_truth])
+    fixed = list(predicted)
+    benchmarks_norm = "benchmarks".lower().strip()
+    fixed_set = set([p.lower().strip() for p in fixed])
+    if benchmarks_norm in fixed_set and benchmarks_norm not in ground_truth_set:
+        fixed = [p for p in fixed if p.lower().strip() != benchmarks_norm]
+    return fixed
+
 def fix_predictions(predicted, ground_truth):
     """
     Fix predictions based on known patterns:
@@ -61,6 +172,7 @@ def fix_predictions(predicted, ground_truth):
     5. Replace "code completion" with "code generation" when ground truth has "code generation"
     6. Replace "code understanding" with "code generation" when ground truth has "code generation"
     7. Replace "program repair" with "code generation" when ground truth has "code generation"
+    8. Remove "benchmarks" if it's not in ground truth (over-valued)
     
     Args:
         predicted: List of predicted topic names
@@ -137,6 +249,12 @@ def fix_predictions(predicted, ground_truth):
     if has_benchmarks_truth and not has_benchmarks_pred:
         # Add benchmarks (use the exact case from possible_values)
         fixed.append(benchmarks)
+    
+    # Pattern 8: Remove "benchmarks" if it's not in ground truth (over-valued)
+    fixed_set = get_fixed_set()
+    if benchmarks_norm in fixed_set and benchmarks_norm not in ground_truth_set:
+        # Remove all instances (case-insensitive)
+        fixed = [p for p in fixed if p.lower().strip() != benchmarks_norm]
     
     # Pattern 5-7: Replace incorrect labels with "code generation" when ground truth has "code generation"
     fixed_set = get_fixed_set()
@@ -558,6 +676,113 @@ def create_fixed_predictions(topicgpt_data, rater_data):
     
     return fixed_data
 
+def evaluate_individual_patterns(topicgpt_data, rater_data):
+    """
+    Evaluate each pattern separately to see individual contributions.
+    
+    Args:
+        topicgpt_data: Dict with filename as key and list of predicted topics as value
+        rater_data: Dict with filename as key and list of ground truth topics as value
+    
+    Returns:
+        dict: Results for each pattern
+    """
+    # Normalize keys
+    topicgpt_data = {k.lower(): v for k, v in topicgpt_data.items()}
+    rater_data = {k.lower(): v for k, v in rater_data.items()}
+    
+    # Pattern functions mapping
+    pattern_functions = {
+        1: ("Remove 'Human-AI Collaboration' (over-valued)", apply_pattern_1),
+        2: ("Swap 'Code Generation' ↔ 'Code Completion'", apply_pattern_2),
+        3: ("Add 'Code Performance' (when Code Optimization present)", apply_pattern_3),
+        4: ("Add 'Benchmarks' (when missing)", apply_pattern_4),
+        5: ("Replace 'Code Completion' → 'Code Generation'", apply_pattern_5),
+        6: ("Replace 'Code Understanding' → 'Code Generation'", apply_pattern_6),
+        7: ("Replace 'Program Repair' → 'Code Generation'", apply_pattern_7),
+        8: ("Remove 'Benchmarks' (over-valued)", apply_pattern_8),
+    }
+    
+    # Get baseline (original) metrics
+    baseline_results = evaluate_data(topicgpt_data, rater_data, verbose=False)
+    baseline_metrics = baseline_results['overall_metrics']
+    
+    pattern_results = {}
+    
+    # Evaluate each pattern individually
+    for pattern_num, (pattern_name, pattern_func) in pattern_functions.items():
+        # Apply pattern to create fixed predictions
+        fixed_data = {}
+        common_files = set(topicgpt_data.keys()).intersection(set(rater_data.keys()))
+        
+        for filename in common_files:
+            predicted = topicgpt_data[filename]
+            ground_truth = rater_data[filename]
+            fixed = pattern_func(predicted, ground_truth)
+            fixed_data[filename] = fixed
+        
+        # Evaluate fixed predictions
+        fixed_results = evaluate_data(fixed_data, rater_data, verbose=False)
+        fixed_metrics = fixed_results['overall_metrics']
+        
+        # Calculate improvements
+        prec_improvement = fixed_metrics['average_precision'] - baseline_metrics['average_precision']
+        rec_improvement = fixed_metrics['average_recall'] - baseline_metrics['average_recall']
+        f1_improvement = fixed_metrics['average_f1'] - baseline_metrics['average_f1']
+        
+        pattern_results[pattern_num] = {
+            'name': pattern_name,
+            'precision': fixed_metrics['average_precision'],
+            'recall': fixed_metrics['average_recall'],
+            'f1': fixed_metrics['average_f1'],
+            'prec_improvement': prec_improvement,
+            'rec_improvement': rec_improvement,
+            'f1_improvement': f1_improvement,
+        }
+    
+    return pattern_results, baseline_metrics
+
+def print_pattern_contributions(pattern_results, baseline_metrics):
+    """
+    Print pattern contributions sorted by precision improvement first, then recall.
+    
+    Args:
+        pattern_results: Results from evaluate_individual_patterns
+        baseline_metrics: Baseline metrics from original evaluation
+    """
+    print("\n" + "="*80)
+    print("INDIVIDUAL PATTERN CONTRIBUTIONS")
+    print("="*80)
+    print(f"Baseline - Precision: {baseline_metrics['average_precision']:.3f}, "
+          f"Recall: {baseline_metrics['average_recall']:.3f}, "
+          f"F1: {baseline_metrics['average_f1']:.3f}")
+    print("="*80)
+    
+    # Sort by precision improvement (descending), then recall improvement (descending)
+    sorted_patterns = sorted(
+        pattern_results.items(),
+        key=lambda x: (x[1]['prec_improvement'], x[1]['rec_improvement']),
+        reverse=True
+    )
+    
+    print(f"\n{'Pattern':<50} {'Precision':<12} {'Recall':<12} {'F1':<12} {'Δ Prec':<10} {'Δ Rec':<10} {'Δ F1':<10}")
+    print("-" * 120)
+    
+    for pattern_num, results in sorted_patterns:
+        prec_sign = "+" if results['prec_improvement'] >= 0 else ""
+        rec_sign = "+" if results['rec_improvement'] >= 0 else ""
+        f1_sign = "+" if results['f1_improvement'] >= 0 else ""
+        
+        print(f"Pattern {pattern_num}: {results['name']:<40} "
+              f"{results['precision']:<12.3f} {results['recall']:<12.3f} {results['f1']:<12.3f} "
+              f"{prec_sign}{results['prec_improvement']:<9.3f} "
+              f"{rec_sign}{results['rec_improvement']:<9.3f} "
+              f"{f1_sign}{results['f1_improvement']:<9.3f}")
+    
+    print("\n" + "="*80)
+    print("SUMMARY: Patterns sorted by Precision improvement (primary), then Recall improvement (secondary)")
+    print("="*80)
+
 def compare_evaluations(original_results, fixed_results):
     """
     Compare original and fixed evaluation results.
@@ -596,7 +821,7 @@ def compare_evaluations(original_results, fixed_results):
     print("\n" + "="*60)
     print("PATTERN IMPACT SUMMARY")
     print("="*60)
-    print("The fixes address seven patterns:")
+    print("The fixes address eight patterns:")
     print("1. Removed 'Human-AI Collaboration' when over-valued (not in ground truth)")
     print("2. Swapped 'Code Generation' and 'Code Completion' when mixed up")
     print("3. Added 'Code Performance' when 'Code Optimization' present and ground truth has both")
@@ -604,6 +829,7 @@ def compare_evaluations(original_results, fixed_results):
     print("5. Replaced 'Code Completion' with 'Code Generation' when ground truth has 'Code Generation'")
     print("6. Replaced 'Code Understanding' with 'Code Generation' when ground truth has 'Code Generation'")
     print("7. Replaced 'Program Repair' with 'Code Generation' when ground truth has 'Code Generation'")
+    print("8. Removed 'Benchmarks' when over-valued (not in ground truth)")
     print("="*60)
 
 # Load and parse data
@@ -635,6 +861,13 @@ if evaluation_results_original['overall_metrics']:
     print(f"Average F1 Score: {metrics['average_f1']:.3f}")
     if 'krippendorff_alpha' in metrics:
         print(f"Krippendorff's Alpha: {metrics['krippendorff_alpha']:.3f}")
+
+# Evaluate each pattern individually
+print("\n" + "="*60)
+print("EVALUATING INDIVIDUAL PATTERN CONTRIBUTIONS")
+print("="*60)
+pattern_results, baseline_metrics = evaluate_individual_patterns(topicgpt_data, rater_data)
+print_pattern_contributions(pattern_results, baseline_metrics)
 
 # Create fixed predictions
 print("\n" + "="*60)

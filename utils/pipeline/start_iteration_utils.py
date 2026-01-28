@@ -45,9 +45,9 @@ def repair_references(iteration: int, db_manager: DBManager, verbose: bool = Fal
             title = title.strip() if title.strip() != "" else article.title
             article.title = title  # Update title if changed
             for search_method in search_methods:
-                found_articles = search_method.search(title)
-                if len(found_articles) > 0:
-                    article.id = found_articles[0].id
+                found_article = search_method.search(title)
+                if found_article:
+                    article.id = found_article.id
                     break
             if article.id is None or article.id == "":
                 print(f"No article found for {title}")

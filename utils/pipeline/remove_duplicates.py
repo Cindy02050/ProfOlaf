@@ -101,7 +101,7 @@ def remove_duplicates(db_manager: DBManager, iterations: List[int],
     print(f"Fetching articles from iterations: {iterations}")
     total_articles = []
     for iteration in iterations:
-        articles = db_manager.get_iteration_data(iteration=iteration, selected=SelectionStage.CONTENT_APPROVED)
+        articles = db_manager.get_iteration_data(iteration=iteration)
         total_articles.extend(articles)
         print(f"  Iteration {iteration}: {len(articles)} articles")
     

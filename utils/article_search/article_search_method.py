@@ -259,17 +259,21 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         return ArticleData(**article_data)
 
     def search(self, query: str):
-        print("Searching for", query)
-        response = requests.get(self.search_query.format(query=query), timeout=60)
-        response.raise_for_status()
-        if response.status_code != 200:
-            print(f"{SS_SEARCH_TAG} Article not found for", query)
+        try:
+            print("Searching for", query)
+            response = requests.get(self.search_query.format(query=query), timeout=60)
+            response.raise_for_status()
+            if response.status_code != 200:
+                print(f"{SS_SEARCH_TAG} Article not found for", query)
+                return None
+            data = response.json()
+            pub = self.map_to_pub(data["data"][0])
+            # Return articleData
+            article_data = self.get_article_data(pub, pub["paperId"], new_pub=True, selected=SelectionStage.NOT_SELECTED, search_method=self.name)
+            return article_data
+        except Exception as e:
+            print(f"{SS_SEARCH_TAG} Error searching for", query, ":", e)
             return None
-        data = response.json()
-        pub = self.map_to_pub(data["data"][0])
-        # Return articleData
-        article_data = self.get_article_data(pub, pub["paperId"], new_pub=True, selected=SelectionStage.NOT_SELECTED, search_method=self.name)
-        return article_data
     
     def map_to_pub(self, article: dict):
         """
