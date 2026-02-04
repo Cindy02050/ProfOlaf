@@ -16,6 +16,7 @@ RUN git pull origin main
 # Install Python dependencies with increased timeout for large packages
 # The timeout is set high (5000 seconds) to handle large CUDA packages like nvidia-cudnn-cu12 (571 MB)
 # Using retry logic in case of network timeouts
+RUN pip install backoff
 RUN pip install --default-timeout=5000 --no-cache-dir -r requirements.txt || \
     (echo "First attempt failed, retrying with longer timeout..." && \
      sleep 5 && \
