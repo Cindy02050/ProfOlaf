@@ -833,9 +833,9 @@ def compare_evaluations(original_results, fixed_results):
     print("="*60)
 
 # Load and parse data
-topicgpt_data = read_jsonl_file('article_topics_results/corrected_assignments.jsonl')
+topicgpt_data = read_jsonl_file('article_topics_results/topic_assignment/supported_assignments.jsonl')
 topicgpt_data = parse_topicgpt_data(topicgpt_data)
-rater_data = read_csv_file('article_topics_results/ta_ground_truth.csv')
+rater_data = read_csv_file('article_topics_results/topic_assignment/ta_ground_truth.csv')
 rater_data = parse_rater_data(rater_data)
 
 # Identify mislabeling patterns
