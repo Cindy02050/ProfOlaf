@@ -259,7 +259,6 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         return ArticleData(**article_data)
 
     def search(self, query: str):
-        print("Searching for", query)
         response = requests.get(self.search_query.format(query=query), timeout=60)
         response.raise_for_status()
         if response.status_code != 200:
@@ -299,15 +298,11 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         
         article_id = article.id
         if article.search_method != SearchMethod.SEMANTIC_SCHOLAR.value:
-            print("here")
             article_id = requests.get(self.id_query.format(query=article.title), timeout=60).json()["data"][0]["paperId"]
 
-        print("Article ID:", article_id)
         bibtex_query = self.bibtex_query.format(paper_id=article_id)
-        print("Bibtex Query:", bibtex_query)
         initial_delay = 1
         response = requests.get(bibtex_query, timeout=60)
-        print("Response:", response)
         while response.status_code == 429:
             print(f"{SS_SEARCH_TAG} Rate limit exceeded for", article.title)
             retry_after = int(response.headers.get("Retry-After", initial_delay))
@@ -335,8 +330,6 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         while True:
             query_url = f"{self.citations_query.format(paper_id=citedby)}&offset={offset}&limit={limit}"
             response = requests.get(query_url, timeout=60)
-            print(citedby)
-            print("Response:", response)
             if response.status_code == 429:
                 print(f"{SS_SEARCH_TAG} Rate limit exceeded for", citedby)
                 retry_after = int(response.headers.get("Retry-After", initial_delay))
