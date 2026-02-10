@@ -1,14 +1,12 @@
-
 # ProfOlaf
 
 ![ProfOlaf Logo](banner.webp)
 
-The **ProfOlaf** tool was built to help researchers with literature reviews. It automates the process of snowballing articles through an initial seed, and helps raters through the process of screening.
+**ProfOlaf** was built to help researchers with literature reviews. It automates the process of snowballing articles through an initial seed, and helps raters through the process of screening. It also provides several LLM-assisted tools for article analysis.
+
+**ProfOlaf** is described in our [paper](https://arxiv.org/pdf/2510.26750).
 
 If you use our tool, please cite it:
-
-
-[Link to the article](https://arxiv.org/pdf/2510.26750)
 ```
 @article{afonso2025profolaf,
   title={ProfOlaf: Semi-Automated Tool for Systematic Literature Reviews},
@@ -18,523 +16,298 @@ If you use our tool, please cite it:
 }
 ```
 
-## Setup - Generating the Search Configuration
+---
 
-**`generate_search_conf.py`** is used to interactively create a `search_conf.json` file that stores all configuration parameters needed for scraping and data collection.
+This document provides a walkthrough of ProfOlaf, demonstrating how the tool supports automated and semi-automated snowballing for literature reviews. The tool is available both as a **web application** and as a **command-line interface**. Here we describe the typical usage of the command-line version, which exposes the full pipeline.
 
-### Features
-- Prompts the user for:
-  - **Year interval** (`start_year`, `end_year`)
-  - **Accepted venue ranks** (comma-separated, e.g. `A, B1, B2`)
-  - **Proxy key** or environment variable name (optional)
-  - **Initial file** (input seed file)
-  - **Path to the database**
-  - **Path to the final CSV file**
-- Saves all parameters into a JSON file: **`search_conf.json`**
-- Provides an easy way to customize and reuse scraping settings.
+## Prerequisites and Input
 
-**Example Usage**
+Before running ProfOlaf, the user must prepare:
 
-Run the script: `python generate_search_conf.py`
+- **Seed file**: A plain-text (`.txt`) or JSON file containing the titles of the seed articles. These articles represent the starting point of the snowballing process.
+- **Python environment**: Install dependencies with `pip install -r requirements.txt`.
+- **LLM configuration** (optional): For LLM-assisted screening and topic modeling, create `utils/article_llm_analysis/llm_config.json` with API keys for OpenAI, Gemini, or Anthropic.
 
-You will be asked step-by-step:
-```bash
-Enter the starting year: 2020
-Enter the ending year: 2025
+## Main Snowballing Pipeline
 
-Enter the accepted venue ranks (stops with empty input): A, B1
-Enter the proxy key (or the env variable name): MY_PROXY_KEY
+The snowballing workflow consists of the following steps, executed sequentially:
 
-Enter the initial file: seed.txt
-Enter the db path: ./data/database.db
-Enter the path to the final csv file: ./results/output.csv
-Enter the search method used: google scholar
-```
+### `utils/setup/generate_search_conf.py`
 
-**Example Output** (`search_conf.json`)
-```json
-{
-  "start_year": 2020,
-  "end_year": 2025,
-  "venue_rank_list": ["A", "B1"],
-  "proxy_key": "MY_PROXY_KEY",
-  "initial_file": "seed.txt",
-  "db_path": "./data/database.db",
-  "csv_path": " ./results/output.csv",
-  "search_method": "google_scholar"
-}
-```
+Generates the search configuration used to query the supported scholarly databases. It stores metadata filtering criteria, file paths, and search method in `confs/search_conf.json`. Run interactively—no arguments required.
 
-> [!NOTE]  
-> The proxy key is only required when using google scholar as the search method.
->
-> Ensure that the initial file, DB path, and CSV path are accessible from your environment
+**Prompts for:**
+- Year interval (start/end)
+- Venue rank list (A*, A, B, C, D, Q1–Q4, NA)
+- Proxy key (or env variable name) for web scraping
+- Initial seed file path
+- Database path
+- Output CSV path
+- Search method: `google_scholar`, `semantic_scholar`, or `dblp`
+- Annotations (inclusion criteria)
 
-## Step 0 — Generate Snowball Starting Points
+### `0_generate_snowball_start.py`
 
-**`0_generate_snowball_start.py`** reads paper titles from a file, looks them up on a search database(via the `scholarly` library for google scholar or the semantic scholar api for semantic scholar), and writes the resulting initial publications into your database for iteration 0 of the snowballing process.
+Initializes the snowballing process using the seed file and stores the initial set of articles in the database.
 
-### What it does
-- Loads config from **`search_conf.json`** (created in Step 1).
-- Reads titles from:
-  - **JSON:** `{"papers": [{"title": "..."}, ...]}`
-  - **TXT:** one title per line
-- Queries Google Scholar for each title and builds a normalized record.
-- Respects a delay between requests to reduce rate limiting
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--input_file` | Path to seed file (txt or json) | `search_conf["initial_file"]` |
+| `--delay` | Delay between API requests (seconds) | `1.0` |
+| `--db_path` | Database path | `search_conf["db_path"]` |
+| `--search_method` | `google_scholar`, `semantic_scholar`, or `dblp` | `search_conf["search_method"]` |
+
+### `1_start_iteration.py`
+
+Starts a new snowballing iteration, collecting forward and backward citations from the set of articles of the previous iteration (or the initial set when starting a new search). Currently, only **Semantic Scholar** provides both backward and forward snowballing; Google Scholar provides citations only. The CLI script also supports repairing broken or unidentified references.
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--iteration` | Iteration number | *required* |
+| `--db_path` | Database path | `search_conf["db_path"]` |
+| `--search_method` | `google_scholar`, `semantic_scholar`, or `dblp` | `search_conf["search_method"]` |
+| `--repair` | Repair method for broken references: `remove` or `manual` | *required* |
+| `--verbose` | Verbose output | flag |
+
+**Note:** The full citation collection is available through the web application (`app.py`). The CLI script focuses on reference repair.
+
+### `2_remove_duplicates.py`
+
+Identifies and removes duplicate entries across databases based on title similarity.
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--db_path` | Database path | `search_conf["db_path"]` |
+| `--iterations` | Iteration numbers to process (e.g. `1 2 3`) | — |
+| `--similarity_threshold` | Title similarity threshold (0.0–1.0) | `0.8` |
+| `--auto_remove` | Remove duplicates without confirmation | flag |
+
+### `3_get_bibtex.py`
+
+Retrieves BibTeX metadata for the collected articles. Without a web-scraping proxy, **Semantic Scholar** is recommended. Too many requests to Google Scholar may result in a block.
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--iteration` | Iteration number | — |
+| `--db_path` | Database path | `search_conf["db_path"]` |
+| `--batch_size` | Batch size for processing | `1` |
+| `--max_workers` | Max parallel workers | `3` |
+| `--parallel` | Disable parallel processing | flag |
+| `--delay` | Delay between requests (seconds) | `1.0` |
+| `--search_method` | Search method | `search_conf["search_method"]` |
+
+### (Optional) `4_generate_conf_rank.py`
+
+Filters articles based on venue ranking if you wish to restrict the corpus to specific publication venues. Uses the venue rank list from `search_conf.json` and fetches ranks from CORE and Scimago when needed.
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--iteration` | Iteration number | — |
+| `--db_path` | Database path | `search_conf["db_path"]` |
+
+### `5_filter_by_metadata.py`
+
+Filters articles according to metadata attributes (year, venue, online availability, language). Configurable via `search_conf.json`.
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--iteration` | Iteration number | *required* |
+| `--db_path` | Database path | `search_conf["db_path"]` |
+| `--disable_venue_check` | Skip venue check | flag |
+| `--disable_year_check` | Skip year check | flag |
+| `--disable_english_check` | Skip language check | flag |
+| `--disable_download_check` | Skip download availability check | flag |
+
+### `6_filter_by_title.py`
+
+Performs title-based screening. The user is interactively prompted to decide whether to keep or discard each article, with a brief justification. Users are encouraged to be conservative and only discard clearly irrelevant articles. Optionally, LLM-based screening can be enabled.
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--iteration` | Iteration number | *required* |
+| `--db-path` | Database path | `search_conf["db_path"]` |
+| `--rater` | Rater name or ID | *required* |
+| `--llm` | Use LLM for screening | `False` |
+| `--model` | LLM model (e.g. `gpt-4o`) | `gpt-4o` |
+| `--api-key` | API key for LLM | — |
+
+### `7_solve_title_disagreements.py`
+
+Resolves disagreements between multiple raters. Presents articles for which raters disagreed, along with their reasoning, and prompts them to reach a consensus decision.
+
+| Argument | Description |
+|----------|-------------|
+| `--iteration` | Iteration number |
+| `--search_dbs` | One or more database paths (e.g. `db1.db db2.db`) |
+
+### `8_filter_by_content.py`
+
+Performs content-based screening using the full text (abstract and introduction) of the articles, following the same interaction model as title-based filtering.
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--iteration` | Iteration number | *required* |
+| `--db-path` | Database path | `search_conf["db_path"]` |
+| `--rater` | Rater ID | *required* |
+| `--llm` | Use LLM for screening | `False` |
+| `--model` | LLM model | `gpt-4o` |
+| `--api-key` | API key for LLM | — |
+| `--article_folder` | Folder to store downloaded PDFs (required for LLM content screening) | — |
+
+### `9_solve_content_disagreements.py`
+
+Resolves rater disagreements from content-based screening. The resulting set after this step marks the end of an iteration.
+
+| Argument | Description |
+|----------|-------------|
+| `--iteration` | Iteration number |
+| `--search_dbs` | One or more database paths |
+
+### Iteration
+
+Steps 1 through 9 are repeated until no new articles are discovered.
+
+### `10_generate_csv.py`
+
+Produces the final CSV file containing the selected articles and their metadata.
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--iterations` | Iteration numbers to include (e.g. `1 2 3`) | — |
+| `--db_path` | Database path | `search_conf["db_path"]` |
+| `--output_path` | Output CSV path | `search_conf["csv_path"]` |
 
 ---
 
-## Accepted input formats
+## Additional Analysis Scripts
 
-### JSON (preferred)
+For post hoc analysis of the final article set, run:
 
-```json
-{
-  "papers": [
-    { "title": "Awesome Paper Title 1" },
-    { "title": "Another Great Title 2" }
-  ]
-}
-```
-### TXT
+### `utils/article_llm_analysis/generate_llm_analysis_conf.py`
 
-```txt
-Awesome Paper Title 1
-Another Great Title 2
-```
----
+The analysis configuration is typically created via the web application, which writes `confs/analysis_conf.json` with:
 
-### Usage
+- `articles_folder`: Path to store downloaded PDFs
+- `csv_path`: Path to the final CSV
+- `seed_file`: Seed file for topic modeling
+- `output_path`: Output directory for topic modeling results
+- `topics_file`: Topics file name
+- `llm_config`: Path to LLM configuration
 
-**With defaults from** `search_conf.json`:
-```bash
-python 0_generate_snowball_start.py
-```
-**Override paths and delay:**
-```bash
-python 0_generate_snowball_start.py \
-  --input_file ./data/accepted_papers.json \
-  --db_path ./data/database.db \
-  --delay 2.5
-```
-### Arguments
+For CLI-only usage, create `confs/analysis_conf.json` manually with these keys.
 
-- `--input_file` Path to `.json` or `.txt` with titles (default: `search_conf["initial_file"]`)
-- `--db_path` Path to database (default: `search_conf["db_path"]`)
-- `--delay` Seconds to sleep between queries (default: `2.0`)
+### `11_download_pdfs.py`
 
----
+Downloads all article PDFs to a folder for subsequent analysis.
 
-### Pipeline context
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--csv_file` | Input CSV with article metadata | `search_conf["csv_path"]` |
+| `--article_folder` | Output folder for PDFs | `analysis_conf["articles_folder"]` |
 
-1. **Step 1:** Generate `search_conf.json` with `generate_search_conf.py`
-2. **Step 2 (this step):** `0_generate_snowball_start.py` → seeds iteration 0 in the DB
-3. **Next:** Continue with your snowballing/expansion scripts using the stored iteration 0 results
+**Note:** Requires `confs/search_conf.json` and `confs/analysis_conf.json`.
 
+### Topic Modeling
 
-## Step 1 — Snowballing
+Topic modeling is run through five scripts using TopicGPT with LangChain LLM support. All scripts expect `confs/analysis_conf.json` and an LLM config (e.g. `utils/article_llm_analysis/llm_config.json`). Use `--help-detailed` on any topic modeling script for full documentation.
 
-`1_start_iteration.py` takes the seed publications from the **previous iteration** and fetches the citations (forward snowballing) and references (backward snowballing) for each one.
+#### `11_topic_modeling_lvl1.py`
 
-> [!NOTE]  
-> The google scholar search method only supports forward snowballing.
-> For both backward and forward snowballing, use semantic scholar as the search_method
+Generates high-level topics from the article set. Extracts text from PDFs automatically.
 
----
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `pdf_folder` | Folder containing PDFs | — |
+| `--output-dir` | Output directory | `analysis_conf["output_path"]` |
+| `--config` | LLM config file | `paper_analysis/llm_config.json` |
+| `--provider` | `openai`, `gemini`, `anthropic` | `openai` |
+| `--seed-file` | Seed file for topic generation | `analysis_conf["output_path"]/analysis_conf["seed_file"]` |
+| `--prompt-file` | Custom prompt file | — |
+| `--max-workers` | Parallel workers | `4` |
 
-### What it does
+#### `11_topic_modeling_lvl2.py`
 
-- Loads config from `search_conf.json` (proxy, DB path)
-- Opens the database for the target `--iteration`
-- Pulls the **seed set from the previous iteration**:  
-```python
-get_iteration_data(iteration=ITERATION-1, selected=SelectionStage.NOT_SELECTED)
- ```
-- For each seed paper, queries ```scholarly.search_citedby(<citedby_id>)```
-- Normalizes each result with ```get_article_data(...)``` and writes:
--- ```insert_iteration_data(articles)``` for the current iteration
--- ```insert_seen_titles_data([(title, id), ...])´´´ for deduping
-- Uses **exponential backoff** (starts at 30s) on failures to reduce rate limiting
-- If a paper has no ```citedby_url```, falls back to a **SHA-256 hash of the title** as its ID
+Generates more specific sub-topics from the level-1 topics.
 
----
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `pdf_folder` | Folder containing PDFs | — |
+| `--output-dir` | Output directory | `analysis_conf["output_path"]` |
+| `--seed-file` | Level-1 topics file (e.g. `topics_lvl1.md`) | `output_dir/topics_lvl1.md` |
+| `--prompt-file` | Custom prompt for level 2 | — |
+| `--config`, `--provider`, `--max-workers` | Same as level 1 | — |
 
-### Usage
+#### `11_topic_modeling_refine.py`
 
-**Typical: expand from iteration 0 → 1**
+Merges similar topics and removes overly specific or redundant topics (e.g. those in &lt;1% of articles).
 
-```bash
-python 1_start_iteration.py --iteration 1
-```
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `pdf_folder` | Folder containing PDFs | — |
+| `--topic-file` | Topic file to refine | *required* |
+| `--generation-file` | Generation JSON file | *required* |
+| `--out-file` | Refined topics output | `output_dir/topics_refined.md` |
+| `--updated-file` | Updated generation JSON | `output_dir/refinement.json` |
+| `--no-remove` | Do not remove topics during refinement | flag |
+| `--prompt-file` | Custom refinement prompt | — |
 
-**Custom DB path**
-```bash
-python 1_start_iteration.py --iteration 2 --db_path ./data/database.db
-```
+#### `11_topic_modeling_assign.py`
 
-**Arguments**
-- `--iteration` Target iteration to generate (int). Seeds are read from `iteration-1`
-- `--db_path` Path to the SQLite DB (default: `search_conf["db_path"]`)
+Assigns the generated topics to each article.
 
----
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `pdf_folder` | Folder containing PDFs | — |
+| `--topic-file` | Topic file (auto-detected if omitted) | — |
+| `--prompt-file` | Assignment prompt | `utils/prompts/topic_modeling_prompts/assignment.txt` |
+| `--data-file` | Data file (e.g. `data.jsonl`) | `output_dir/data.jsonl` |
+| `--output-file` | Assignments output | `output_dir/assignments.jsonl` |
 
-### Input / Output
+#### `11_topic_modeling_correct.py`
 
-**Input**
-- DB must already contain **iteration N-1** data (e.g., created by `0_generate_snowball_start.py` for iteration 0)
+Corrects hallucinated or erroneous topic assignments.
 
-**Writes to DB**
-- Current iteration’s articles (normalized records)
-- `seen_titles` pairs `(title, id)` used for deduplication
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `pdf_folder` | Folder containing PDFs | — |
+| `--data-path` | Assignments file (e.g. `assignments.jsonl`) | `output_dir/assignments.jsonl` |
+| `--output-path` | Corrected assignments output | `output_dir/corrected_assignments.jsonl` |
+| `--topic-path` | Topic file | auto-detected |
+| `--prompt-path` | Correction prompt | — |
 
----
+### Task Assistant
 
-### Troubleshooting
+The task assistant module is run using `11_task_assistant.py`. Add prompt files (`.txt`) under a folder specified in the analysis configuration; the script runs the LLM on each article for each prompt.
 
-- **“No citations found”**: The seed’s `citedby` page has zero results—this is normal for some papers.
-- **Captcha / throttling**: Ensure a working proxy and let the backoff run; rerun later if needed.
-- **Seed count is zero**: Verify that the previous iteration exists in the DB and that items are marked with `SelectionStage.NOT_SELECTED`.
-
----
-
-## Step 2 — Fetch BibTeX for Iteration *N*
-
-`2_get_bibtex.py` enriches the papers in **iteration N** by fetching their **BibTeX** from Google Scholar (via `scholarly`) and updating your database. The information present in the bibtex is necessary for the metadata screening step
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `prompts_folder` | Folder containing `.txt` prompt files | *required* |
+| `--config` | LLM config file | `paper_analysis/llm_config.json` |
+| `--provider` | `openai`, `gemini`, `anthropic`, `openai-completion` | `openai` |
+| `--output` | Output file for results (JSON) | — |
+| `--pdf-folder` | Folder containing PDFs | — |
+| `--single-pdf` | Process a single PDF | — |
+| `--max-workers` | Parallel workers | `1` |
 
 ---
 
-### What it does
+## Web Application
 
-- Loads config from `search_conf.json` (proxy, DB path)
-- Reads all articles for the target iteration from the DB
-- For each article:
-  1. Looks up the publication by **title** (`scholarly.search_single_pub` → `scholarly.bibtex`)
-  2. Parses the BibTeX to extract the **venue** (`booktitle` or `journal`)
-  3. If the venue looks like **arXiv/CoRR**, it tries to find a **non-arXiv version** by checking all versions (`scholarly.get_all_versions`) and selecting one with a proper venue (conference/journal)
-  4. Writes the chosen BibTeX back to the DB (`update_iteration_data`)
-- Uses **exponential backoff** (starting at 30s) on errors to reduce throttling
-
----
-
-### Usage
-
-Fetch BibTeX for **iteration 1:**
-
-```bash
-python 2_get_bibtex.py --iteration 1
-```
-
-Custom DB path:
-```bash
-python 2_get_bibtex.py --iteration 1 --db_path ./data/database.db
-```
-
-**Arguments**
-- `--iteration` *(required)* Target iteration number (int) 
-- `--db_path` *(optional)* Path to the SQLite DB (default: `search_conf["db_path"]`)
-
----
-
-### Input / Output
-
-**Input**
-- DB entries for **iteration N** (e.g., produced by `1_start_iteration.py`)
-
-**Writes to DB**
-- Updates each article in iteration N with a `bibtex` string
-
----
-
-### Proxy & Rate Limiting
-
-- Proxy session is initialized via `get_proxy(search_conf["proxy_key"])`
-- Google Scholar may throttle; the script retries with **exponential backoff** (30s → 60s → 120s ...)
-
----
-
-### Troubleshooting
-
-- **Repeated retries / never finishes on arXiv-only papers**  
-  The script is strict about replacing arXiv/CoRR with a non-arXiv venue and will keep trying 
-  Consider relaxing this logic if arXiv should be accepted
-
-- **Captcha / throttling**  
-  Use a reliable proxy; give the backoff time to proceed; rerun later if needed
-
-- **Venue not detected**  
-  The venue is extracted from `booktitle` or `journal`. Some BibTeX records lack these fields; alternative versions are attempted
-
----
-
-## Step 3 — Assign Venue Ranks (interactive)
-
-`3_generate_conf_rank.py` scans the **iteration N** articles’ BibTeX, extracts their venues (conference/journal), and lets you **assign a rank** to any venue that isn’t already in your DB. Results are written to the `conf_rank` table as you go.
-
-To assist this manual process, the tool searches both Scimago and a local core ranking database foe the venues.
-
-> [!NOTE] 
-> Run Step 4 (`2_get_bibtex.py`) first so venues can be read from BibTeX.
-
----
-
-### Usage
-
-Rank venues for **iteration 1**:
-```bash
-python 3_generate_conf_rank.py --iteration 1
-```
-
-Custom DB path:
-```bash
-python 3_generate_conf_rank.py --iteration 1 --db_path ./data/database.db
-```
-
-### Arguments
-- `--iteration` *(required)* Target iteration number (int)
-- `--db_path` *(optional)* Path to the SQLite DB (default: from `search_conf.json`)
-
----
-
-### Example session
-
-```kotlin
-(1/5) IEEE Symposium on Example Security
-What is the rank of this venue? A
-
-(2/5) Journal of Hypothetical Research
-What is the rank of this venue? Q1
-
-(3/5) arXiv
--> auto-assigned NA
-...
-```
-
-Each answer is **immediately stored**:
-
-- `db_manager.insert_conf_rank_data([(venue, rank)])`
-
----
-
-### Input / Output
-
-**Input**
-- DB entries for **iteration N**, each with a **BibTeX** string (from Step 4)
-
-**Writes to DB**
-- Table with venue–rank pairs (queried via `db_manager.get_conf_rank_data()`)
-
----
-
-### Troubleshooting
-
-- **No venues found** → Ensure Step 4 populated BibTeX for this iteration
-- **Invalid rank** → The script will reprompt until you enter a valid label
-- **arXiv/SSRN assigned as NA** → This is by design; override later by updating the DB if you need a different policy
-
----
-
-## Step 4 — Filter by Metadata 
-
-`4_filter_by_metadata.py` reviews **iteration N** records and decides whether each paper is **selected** or **filtered out** based on venue/peer-review, year window, language, and download availability. It writes the results back to the DB in a single batch.
-
-### What it checks (in order)
-
-1. **Venue & peer-review**
-   - Parses the article’s **BibTeX** and extracts `booktitle` or `journal`
-   - Automatically rejects if the BibTeX `ENTRYTYPE` is `book`, `phdthesis`, or `mastersthesis`, or if venue is `NA`/missing
-   - Looks up the venue’s rank in the DB and compares it against `search_conf["venue_rank_list"]`
-   - If the venue isn’t known in the DB, it asks you: `Is the publication peer-reviewed and A or B or ... (y/n)`
-
-2. **Year window**
-   - Accepts if `pub_year` is between `search_conf["start_year"]` and `search_conf["end_year"]`
-   - If the year is unknown/non-numeric, it asks you to confirm
-
-3. **Language (English)**
-   - If the venue check already passed (peer-reviewed + ranked OK), it auto-assumes English
-   - Otherwise, it asks: `Is the publication in English (y/n)`
-
-4. **Download availability**
-   - Accepts if an `eprint_url` is present; else asks: `Is the publication available for download (y/n)`
-
-If all checks pass → **Selected**. Otherwise the first failing reason is recorded.
-
----
-
-### DB writes
-
-For each article, one of the following fields is updated (via `update_batch_iteration_data`):
-
-| Outcome                   | Field set on the article                 |
-|---------------------------|------------------------------------------|
-| Venue/peer-review failed  | `venue_filtered_out = True`              |
-| Year outside window       | `year_filtered_out = True`               |
-| Not English               | `language_filtered_out = True`           |
-| No downloadable copy      | `download_filtered_out = True`           |
-| All checks passed         | `selected = SelectionStage.SELECTED`     |
-
----
-
-### Usage
-
-**Filter iteration 1:**
-```bash
-python 4_filter_by_metadata.py --iteration 1
-```
-Custom DB path:
-```bash
-python 4_filter_by_metadata.py --iteration 1 --db_path ./data/database.db
-```
-
-### Arguments
-- `--iteration` *(required)* Target iteration (int)
-- `--db_path` *(optional)* SQLite DB path (default: from `search_conf.json`)
-
----
-
-### Example session
-
-```pgsql
-Element 3 out of 42
-ID: 123456
-Title: Cool Paper on X
-Venue: IEEE S&P
-Url: https://example.org/paper.pdf
-
-Is the publication peer-reviewed and A or B or Q1 (y/n): y
-Is the publication year between 2018 and 2024 (y/n): y
-
-Selected
-```
-
----
-
-> [!NOTE]
-> **Auto-logic shortcut:** If venue + rank already prove peer-review and the venue is in your allowed list (`venue_rank_list`), `check_english` returns `True` without aski_
->
->**Unknown year:** You’re prompted to confirm it’s within the configured window
->
->**Interactive prompts:** The script is designed to be conservative—if metadata is incomplete, it asks you rather than guessing
---- 
-
-## Step 5 — Title Screening
-
-`5_filter_by_title.py` iteratively asks the user  if he wants to keep each paper or not, based solely on the title. Along with the user's choice (yes, no, or skip), ProfOlaf also prompts the user for its reasoning in their choice. This is used to help each rater remember their thought process in the following steps
-### Usage
-
-**Filter iteration 1:**
-```bash
-python 5_filter_by_title.py --iteration 1
-```
-Custom DB path:
-```bash
-python 5_filter_by_title.py  --iteration 1 --db_path ./data/database.db
-```
-
-### Arguments
-- `--iteration` *(required)* Target iteration (int)
-- `--db_path` *(optional)* SQLite DB path (default: from `search_conf.json`)
-
----
-
-## Step 6 — Solve Title Screening Disagreements
-
-`6_8_solve_disagreements.py` is used to collect the search databases of different users/raters and reach a consensus on the articles where there was a decision conflict. The script goes over the articles where at least 2 users disagreed in their screening process and presents the reasoning of each rater. After a careful discussion, the raters can make their final decision on the relevance of the paper.
-
-This script is used twice: after **Step 5** and **Step 7**.
-
-### Usage
-
-**Filter iteration 1:**
-```bash
-python 6_8_solve_disagreements.py --iteration 1 --search_dbs rater1.db rater2.db ... --selection_stage TITLE
-```
-
-### Arguments
-- `--iteration` *(required)* Target iteration (int)
-- `--search_dbs` *(required)* SQLite DB paths (one for each rater involved)
-- `--selection_stage` *(required: TITLE or CONTENT)* String representing which disagreements are being processed 
----
-
-## Step 7 — Full Content Screening
-
-`7_filter_by_content.py` iteratively asks the user if he wants to keep each paper or not, based on the content of the full paper. For each article, the tool presents the url for the article. Along with the user's choice (yes, no, or skip), ProfOlaf also prompts the user for its reasoning in their choice. This is used to help each rater remember their thought process in the following steps
-### Usage
-
-**Filter iteration 1:**
-```bash
-python 5_filter_by_title.py --iteration 1
-```
-Custom DB path:
-```bash
-python 5_filter_by_title.py  --iteration 1 --db_path ./data/database.db
-```
-
-### Arguments
-- `--iteration` *(required)* Target iteration (int)
-- `--db_path` *(optional)* SQLite DB path (default: from `search_conf.json`)
-
----
-
-## Step 8 — Solve Content Screening Disagreements
-
-`6_8_solve_disagreements.py` is used again, similarly to the previous steps
-
-```
-### Usage
+Run the web application with:
 
 ```bash
-python 6_8_solve_disagreements.py --iteration 1 --search_dbs rater1.db rater2.db ... --selection_stage CONTENT
+python app.py
 ```
 
-### Arguments
-- `--iteration` *(required)* Target iteration (int)
-- `--search_dbs` *(required)* SQLite DB paths (one for each rater involved)
-- `--selection_stage` *(required: TITLE or CONTENT)* String representing which disagreements are being processed 
----
+The app is available at `http://localhost:5000` and provides a graphical interface for the entire pipeline, including snowball start generation, iteration collection, BibTeX retrieval, screening, and analysis configuration.
 
-## Step 9 — Remove Duplicates
+## Docker
 
-`9_remove_duplicates.py` is used to remove potential duplicates in the results. The same article is often present in a certain database under a slightly different title. This script catches possible duplicate articles in the database and prompts the user which one he wants to keep (or if it is a false positive and both should be kept).
-
-
-### Usage
+Build and run with Docker:
 
 ```bash
-python 9_remove_duplicates.py --iterations 1 2 3 4
+docker build -t profolaf .
+docker run -p 5000:5000 profolaf
 ```
 
-### Arguments
-- `--iterations` *(required)* Iterations to include
-- `--db_path` *(optional)* Final SQLite DB path
-- `--auto-remove` *(optional)* Automatically removes duplicates without user confirmation 
----
-
-## Step 10 — Generate CSV
-
-`10_generate_csv.py` takes the information on the final search database and exports it into a csv
-
-### Usage
-
-```bash
-python 10_generate_csv.py --iterations 1 2 3 4 
-```
-
-### Arguments
-- `--iterations` *(required)* Iterations to include
-- `--db_path` *(optional)* Final SQLite DB path
-- `--output_path` *(optional)* Automatically removes duplicates without user confirmation 
----
-
-
-
-
-
-
-
-
-
-  
-
-
-
-
+On startup, choose between the web application (port 5000) or an interactive shell for running CLI scripts.
