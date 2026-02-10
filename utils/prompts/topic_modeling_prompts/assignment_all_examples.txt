@@ -1,0 +1,161 @@
+You will receive a document and a topic hierarchy. Assign the document to the most relevant topics the hierarchy. Then, output the topic labels, assignment reasoning and supporting quotes from the document. DO NOT make up new topics or quotes.  
+Be very careful when assigning topics. Only assign a topic when you are 100% sure that it is relevant. 
+Prioritize assigning topics that are the main focus of the document.
+Try to minimize the number of topics you assign per document. Some topics are more specific than others, in that case you should only assign the more specific topic
+We provide some examples of possible assignments to topics and the type of quotes you should encounter that justify those assignments.
+
+[Topic Hierarchy]
+{tree}
+
+[Examples]
+Example 1: Assign "[1] Program Repair" and "[1] Benchmarks" to the document
+Document Quotes: 
+"...we propose InferFix: a transformer-based program repair framework paired with a state-of-the-art static analyzer to fix critical security and performance bugs. 
+Our approach combines a static analyzer to detect, localize, and classify bugs with a powerful LLM (finetuned 12 billion parameter Codex model) to generate fixes.
+[...] we curate InferredBugs: a metadata-rich dataset of bugs and fixes in Java and C# programming languages extracted with the Infer static analyzer"
+
+Assignment:
+[1] Program Repair: Mentions a new solution for automated program repair ("... a transformer-based program repair framework..."; "... a poweful LLM [...] to generate fixes.")
+[1] Benchmarks: Introduces a new benchmark/dataset for the task ("we curate InferredBugs: a metadata-rich dataset of bugs and fixes in Java and C# programming languages...")
+
+Example 2: Assigned "[1] Code Understanding", "[1] Code Completion" and "[1] Code Generation" to the document
+Document Quotes:
+"We evaluate the code understanding capabilities of CodeT5+ through text-to-code retrieval tasks across multiple PLs"
+"We evaluate the decoder-only generation capability of CodeT5+ through a line-level code completion task"
+"We first evaluate the zero-shot code generation capabilities of our model on the HumanEval benchmark"
+
+Assignment:
+[1] Code Understanding: evaluate the code understanding ability of the model ("... evaluate the code understanding capabilities of CodeT5+...")
+[1] Code Completion: evaluates the code completion task for a model ("...evaluate the decoder-only generation capability of CodeT5+ through a line-level code completion task.")
+[1] Code Generation: evaluates the code generation task for a model ("...evaluate the zero-shot code generation capabilities of our model...")
+
+Example 3: Assigned "[1] Specification Generation", "[1] Benchmarks" to the document
+Document Quotes:
+"The main contributions are summarized as follows:[...] A novel approach for formal program specification generation and corresponding prototype tool
+[...] A dataset named SpecGenBench, with hand-written specifications by experts, facilitating follow-up research."
+
+Assignment:
+[1] Specification Generation: new solution for program specification generation ("A novel approach for formal program specification generation...")
+[1] Benchmark: presents a new benchmark for specification generation ("A dataset named SpecGenBench, with hand-written specifications by experts, facilitating follow-up research.")
+
+Example 4: Assigned "[1] Code Translation", "[1] Specification Generation" to the document
+Document Quotes:
+"We propose and evaluate UniTrans, a Unified code Translation framework applicable to various LLMs to unleash their power in code translation"
+"Instead of directly generating test cases for focal methods, we leverage LLMs to generate methods’ candidate inputs first"
+
+Assignment:
+[1] Specification Generation: uses LLMs to generate test cases, which are a kind of specification ("...we leverage LLMs to generate methods’ candidate inputs first")
+[1] Code Translation: propose a new solution for the Code Translation task ("...a Unified code Translation framework applicable to various LLMs...")
+
+Example 5: Assigned "[1] Computer Science Education", "[1] Program Repair" to the document
+Document Quotes:
+"We aim to contribute to more efficient and effective code correction methods, ultimately improving the learning experience in programming education."
+
+Assignment:
+[1] Computer Science Education: contribute to improve the impact of LLMs in computer science education ("We aim to contribute to more efficient and effective code correction methods, ultimately improving the learning experience in programming education")
+[1] Program Repair: contributes to code correction, essentially program repair ("...more efficient and effective code correction methods...")
+
+Example 5: Assigned "[1] Fault Localization", "[1] Code Review" to the document
+Document Quotes:
+"The primary function of the Code Review Agent is to analyze source code and identify potential issues, including bugs, code smells, and deviations from established coding standards."
+"This agent specializing in identifying potential bugs within the code, analyzes patterns and anomalies that have historically been associated with software bugs"
+
+Assignment:
+[1] Code Review: proposes an agent for reviewing code ("The primary function of the Code Review Agent is to analyze source code and identify potential issues, including bugs, code smells, and deviations from established coding standards.")
+[1] Fault Localization: has an agent specializing in identifying bugs in code ("This agent specializing in identifying potential bugs within the code...")
+
+Example 5: Assigned "[1] Vulnerability Detection", "[1] Security Analysis" to the document
+Document Quotes:
+"Through analysis of historically significant Common Vulnerabilities and Exposures (CVEs) in popular open-source projects, including frameworks such as Django and Log4j, this research evaluates the capability of LLMs to detect subtle security flaws within complex codebases."
+"The research examines the efficacy of LLMs in identifying security vulnerabilities that human reviewers, particularly those without extensive security backgrounds, might overlook"
+
+Assignment:
+[1] Security Analysis: Inspecting security aspects in code. ("Through analysis of historically significant CommonVulnerabilities and Exposures (CVEs) [...] this research evaluates the capability of LLMs to detect subtle security flaws within complex codebases ")
+[1] Vulnerability Detection: studies the capability of LLms for detecting vulnerabilities ("efficacy of LLMs in identifying security vulnerabilities that human reviewers")
+
+Example 6: Assigned "[1] Green Software" to the document
+Document Quotes:
+"This paper is motivated by the urgent need to address sustainability challenges in software engineering"
+
+Assignment:
+[1] Security Analysis:  adresses sustainability issues in software engineering ("This paper is motivated by the urgent need to address sustainability challenges in software engineering")
+
+Example 7: Assigned "[1] Code Optimization" to the document
+Document Quotes:
+"We propose an end-to-end LLM-based framework for code optimization, which is capable of incorporating feedback from unit tests into its learning process using reinforcement learning (RL) techniques"
+
+Assignment:
+[1] Code Optimization: proposes solution for the code optimization task with LLMs ("We propose an end-to-end LLM-based framework for code optimization...")
+
+Example 8: Assigned "[1] Code Performance" to the document
+Document Quotes:
+"We compare 18 LLMs, considering factors such as model temperature and success rate, and their impact on code performance"
+
+Assignment:
+[1] Code Performance: studies the performance of code generated by several LLMs ("We compare 18 LLMs [...] and their impact on code performance")
+
+Example 9: Assigned "[1] Vulnerability Score Prediction" to the document
+Document Quotes:
+"This study explores leveraging Large Language Models (LLMs) for automating vulnerability risk score prediction using the industrial CVSS standard"
+
+Assignment:
+[1] Vulnerability Score Prediction: explores the capabilites of LLMs for Estimating the likelihood (probability) that a software vulnerability will be exploited. ("... leveraging Large Language Models (LLMs) for automating vulnerability risk score prediction")
+
+Example 10: Assigned "[1] Bug Report Summarization" to the document
+Document Quotes:
+"We introduce SumLLaMA, a novel approach based on large language models (LLMs) for automated bug report summarization"
+
+Assignment
+[1] Bug Report Summarization: new solution for bug report summarization using LLMs ("...a novel approach based on large language models (LLMs) for automated bug report summarization")
+
+
+Example 11: Assigned "[1] Vulnerability Repair" to the document
+Document Quotes:
+"We provide the first evaluation of LLMs for zero-shot generation of security fixes, showing that off-the-shelf models are capable of producing security fixes..."
+
+Assignment
+[1] Vulnerability Repair: evaluates LLMs on generating vulnerability fixes ("We provide the first evaluation of LLMs for zero-shot generation of security fixes...")
+
+Example 12: Assigned "[1] Security Patch Detection" to the document
+Document Quotes:
+"To investigate these challenges, this study defines the following research questions: RQ1: How well do LLMs distinguish between security patches and non-security patches?"
+
+Assignment
+[1] Security Patch Detection: evaluates LLMs on detecting security patches ("... RQ1: How well do LLMs distinguish between security patches and non-security patches?")
+
+Example 13: Assigned "[1] Human-AI Collaboration" to the document
+Document Quotes:
+"In this paper, we propose a taxonomy of interaction types between developers and AI tools, identifying eleven distinct interaction types"
+
+Assignment
+[1] Human-AI Collaboration: studies interaction between developers and code AI tools ("...we propose a taxonomy of interaction types between developers and AI tools...")
+
+Example 14: Assigned "[1] Code Search" and "[1] Code Completion" to the document
+Document Quotes:
+"We propose a retrieval-augmented code suggestion framework that can integrate different search strategies, retrieval techniques, and LMs to improve the performance of code suggestions."
+
+Assignment
+[1] Code Search: proposes the use of code search strategies ("...retrieval-augmented code suggestion framework that can integrate different search strategies...")
+[2] Code Completion: solution suggests the improvement of code suggestions ("... and LMs to improve the performance of code suggestion")
+
+Example 15: Assigned "[1] Code Summarization" to the document
+Document Quotes:
+"In this paper, we propose a source code summarization technique that writes English descriptions of Java methods by analyzing how those methods are invoked."
+
+Assignment
+[1] Code Summarization: studies how effective are LLM-generated summaries ("...we propose a source code summarization technique that writes English descriptions of Java methods...")
+
+[Instructions]
+1. Topic labels must be present in the provided topic hierarchy. You MUST NOT make up new topics. 
+2. The quote must be taken from the document. You MUST NOT make up quotes. 
+
+
+
+[Document]
+{Document}
+
+Double check that your assignment exists in the hierarchy!
+Your response should be in the following format:
+[Topic Level] Topic Label: Assignment reasoning (Supporting quote)
+
+Your response:
