@@ -81,7 +81,7 @@ def get_alternative_bibtexes_cached(pub):
             return version
     return ""
 
-def _get_main_bibtex(article: ArticleData, delay_between_requests: float = 1.0) -> Tuple[str, str]:
+def _get_main_bibtex(article: ArticleData, delay_between_requests: float = 3.0) -> Tuple[str, str]:
     current_wait_time = delay_between_requests
     max_retries = 3
     retry_count = 0
@@ -109,7 +109,7 @@ def _get_main_bibtex(article: ArticleData, delay_between_requests: float = 1.0) 
             continue
     return None, None
 
-def _get_dblp_bibtex(article: ArticleData, delay_between_requests: float = 1.0) -> Tuple[str, str]:
+def _get_dblp_bibtex(article: ArticleData, delay_between_requests: float = 3.0) -> Tuple[str, str]:
     article_search = ArticleSearch(DBLPSearchMethod())
     current_wait_time = delay_between_requests
     max_retries = 3
@@ -150,7 +150,7 @@ def _get_dblp_bibtex(article: ArticleData, delay_between_requests: float = 1.0) 
 
     return None
 
-def _get_alternative_bibtex(pub: dict, delay_between_requests: float = 1.0) -> Tuple[str, str]:
+def _get_alternative_bibtex(pub: dict, delay_between_requests: float = 3.0) -> Tuple[str, str]:
     current_wait_time = delay_between_requests
     max_retries = 3
     retry_count = 0
@@ -174,7 +174,7 @@ def _get_alternative_bibtex(pub: dict, delay_between_requests: float = 1.0) -> T
         
     return None
 
-def get_bibtex_single(article: ArticleData, search_method: SearchMethod = SearchMethod.GOOGLE_SCHOLAR, delay_between_requests: float = 1.0) -> Tuple[str, str]:
+def get_bibtex_single(article: ArticleData, search_method: SearchMethod = SearchMethod.GOOGLE_SCHOLAR, delay_between_requests: float = 3.0) -> Tuple[str, str]:
     """
     Get the bibtex string for a single article.
     Returns (article_id, bibtex_string)
@@ -328,7 +328,7 @@ def update_bibtex_info(iteration: int, results: List[Tuple[str, str, str]], db_m
 
 def process_articles_optimized(iteration: int, articles: List[ArticleData], db_manager: DBManager,
                               batch_size: int = 10, max_workers: int = 3, 
-                              use_parallel: bool = True, search_method: SearchMethod = SearchMethod.GOOGLE_SCHOLAR, delay: float = 1.0,
+                              use_parallel: bool = True, search_method: SearchMethod = SearchMethod.GOOGLE_SCHOLAR, delay: float = 3.0,
                               cancel_flag=None) -> None:
     """
     Optimized processing of articles with batch updates and optional parallel processing.
