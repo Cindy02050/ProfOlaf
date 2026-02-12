@@ -22,6 +22,8 @@ This document provides a walkthrough of ProfOlaf, demonstrating how the tool sup
 
 ## Prerequisites and Input
 
+Currently, ProfOlaf ca be ran with Python3.10. Other versions might cause dependency conflicts.
+
 Before running ProfOlaf, the user must prepare:
 
 - **Seed file**: A plain-text (`.txt`) or JSON file containing the titles of the seed articles. These articles represent the starting point of the snowballing process.
