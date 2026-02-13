@@ -176,6 +176,17 @@
                                         <div class="form-text">Name for the resulting merged database. All tables will be copied from the first database, and screening tables from all databases will be merged.</div>
                                     </div>
 
+                                    <div class="mb-3">
+                                        <label for="annotationHandling" class="form-label">
+                                            <i class="fas fa-tags"></i> Annotation handling
+                                        </label>
+                                        <select class="form-select" id="annotationHandling">
+                                            <option value="gather_all">Gather all (join all raters’ annotations)</option>
+                                            <option value="manually_select">Manually select (choose or rewrite per field)</option>
+                                        </select>
+                                        <div class="form-text">For accepted articles: <strong>Gather all</strong> joins each rater’s values per field (e.g. "a, b" + "c" → "a, b, c"). <strong>Manually select</strong> shows each field and lets you pick which values to keep or rewrite.</div>
+                                    </div>
+
                                     <button type="button" class="btn btn-primary btn-lg" id="findDisagreementsBtn">
                                         <i class="fas fa-code-branch"></i> Merge Databases and Find Disagreements
                                     </button>
@@ -232,9 +243,9 @@
                                     </div>
 
                                     <!-- Annotations -->
-                                    <div class="mb-4">
+                                    <div class="mb-4" id="annotationsBlock">
                                         <h6><i class="fas fa-tags"></i> Annotations</h6>
-                                        <p class="text-muted small">Select which annotations you wish to keep from each rater:</p>
+                                        <p class="text-muted small" id="annotationsDescription">Select which annotations you wish to keep from each rater:</p>
                                         <div id="annotationsContainer"></div>
                                     </div>
 
@@ -305,22 +316,45 @@
 
                         <!-- Completion Message -->
                         <div id="completionSection" class="alert alert-success mt-3" style="display: none;">
-                            <i class="fas fa-check-circle"></i> All disagreements have been resolved!
+                            <span id="completionMessage"><i class="fas fa-check-circle"></i> All disagreements have been resolved!</span>
                             
-                            <!-- Merge Results Back Section -->
-                            <div class="mt-3">
-                                <h6><i class="fas fa-download"></i> Merge Results Back to Initial Database</h6>
-                                <p class="mb-2">Select one of the initial databases to merge all resolved decisions back to:</p>
-                                <div class="mb-2">
-                                    <select class="form-select" id="targetDbSelect">
-                                        <option value="">-- Select target database --</option>
-                                    </select>
+                            <!-- Agreed Articles / Final Annotations -->
+                            <div id="agreedArticlesBlock" class="mt-3" style="display: none;">
+                                <h6><i class="fas fa-tags"></i> Annotations for agreed articles</h6>
+                                <p class="mb-2 text-muted small" id="agreedArticlesSummary"></p>
+                                <div id="agreedArticlesGatherBlock" style="display: none;">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" id="applyGatherAllAgreedBtn">
+                                        <i class="fas fa-compress-arrows-alt"></i> Apply gather all to all agreed articles
+                                    </button>
+                                    <span class="ms-2 text-muted small" id="applyGatherAllStatus"></span>
                                 </div>
-                                <button type="button" class="btn btn-primary" id="mergeResultsBackBtn">
-                                    <i class="fas fa-code-branch"></i> Merge Results Back
-                                </button>
-                                <div class="alert alert-info mt-2 mb-0" id="mergeResultsInfo" style="display: none;">
-                                    <i class="fas fa-info-circle"></i> <span id="mergeResultsMessage"></span>
+                                <div id="agreedArticlesManualBlock" style="display: none;" class="mt-2">
+                                    <p class="small text-muted">Set final annotations for each agreed article:</p>
+                                    <ul class="list-group list-group-flush" id="agreedArticlesList"></ul>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4">
+                                <a href="{{ url_for('workflow_stage') }}" class="btn btn-primary btn-lg">
+                                    <i class="fas fa-flag-checkered"></i> Finish step — Back to Workflow
+                                </a>
+                                <p class="text-muted small mt-2 mb-0">All results are saved in the merged database. You can return here later to edit annotations for agreed articles.</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Modal: Edit annotations for one agreed article -->
+                        <div class="modal fade" id="editAgreedAnnotationModal" tabindex="-1">
+                            <div class="modal-dialog modal-lg">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Set final annotations</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body" id="editAgreedAnnotationModalBody"></div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="button" class="btn btn-primary" id="saveAgreedAnnotationBtn">Save</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -332,11 +366,31 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        const annotationFields = {{ annotations | default([]) | tojson }};
         let disagreements = [];
         let currentDisagreementIndex = 0;
+        let initialTotalDisagreements = 0; // Keep fixed so "Disagreement i of N" stays correct when list shrinks
         let dbPaths = [];
         let currentIteration = null;
         let mergedDbPath = null;
+
+        // Parse comma/semicolon-separated enumeration to a set (no duplicates, order-independent)
+        function parseEnumerationToSet(str) {
+            if (!str || typeof str !== 'string') return new Set();
+            return new Set(str.split(/[,;]+/).map(s => s.trim()).filter(Boolean));
+        }
+        // Merge multiple enumeration strings into one deduplicated string (sorted for consistency)
+        function dedupeEnumerationValue(str) {
+            return [...parseEnumerationToSet(str)].sort().join(', ');
+        }
+        // Merge several rater value strings into one deduplicated final value
+        function mergeAndDedupeEnumerationValues(valueStrings) {
+            const set = new Set();
+            (valueStrings || []).forEach(s => {
+                parseEnumerationToSet(s).forEach(item => set.add(item));
+            });
+            return [...set].sort().join(', ');
+        }
 
         // Add database input
         function addDbInput() {
@@ -439,16 +493,6 @@
                 }
 
                 mergedDbPath = mergeData.merged_db_path;
-                
-                // Populate target database dropdown with initial database paths
-                const targetDbSelect = document.getElementById('targetDbSelect');
-                targetDbSelect.innerHTML = '<option value="">-- Select target database --</option>';
-                dbPaths.forEach((dbPath, index) => {
-                    const option = document.createElement('option');
-                    option.value = dbPath;
-                    option.textContent = dbPath.split(/[/\\]/).pop() + ` (${dbPath})`;
-                    targetDbSelect.appendChild(option);
-                });
 
                 // Now find disagreements from merged database
                 document.getElementById('loadingSpinner').querySelector('p').textContent = 'Finding disagreements...';
@@ -487,11 +531,12 @@
                 }
 
                 disagreements = data.disagreements || [];
+                initialTotalDisagreements = disagreements.length;
                 
                 if (disagreements.length === 0) {
                     document.getElementById('completionSection').style.display = 'block';
-                    document.getElementById('completionSection').innerHTML = 
-                        '<i class="fas fa-check-circle"></i> No disagreements found! All raters agreed on all articles.';
+                    document.getElementById('completionMessage').innerHTML = '<i class="fas fa-check-circle"></i> No disagreements found! All raters agreed on all articles.';
+                    loadAgreedArticlesSection();
                     return;
                 }
 
@@ -721,51 +766,106 @@
             }
             reasoningsContainer.innerHTML = html;
 
-            // Update annotations
+            // Update annotations (depends on annotation handling mode)
             const annotationsContainer = document.getElementById('annotationsContainer');
+            const annotationsDescription = document.getElementById('annotationsDescription');
+            const annotationMode = document.getElementById('annotationHandling').value;
             html = '';
-            
-            // Show annotations from all raters who have them
+
             const allRaters = [...selectedRaters, ...filteredRaters, ...notSelectedRaters];
-            for (let rater of allRaters) {
-                const annotations = disagreement.annotations[rater] || {};
-                // Only show if there are annotations (excluding reason field)
-                const annotationKeys = Object.keys(annotations).filter(k => k !== 'reason');
-                if (annotationKeys.length > 0) {
-                    html += `
-                        <div class="card mb-2" id="annotations-${rater}">
-                            <div class="card-body">
-                                <div class="form-check">
-                                    <input class="form-check-input annotation-checkbox" type="checkbox" 
-                                           id="annotation-checkbox-${rater}" 
-                                           value="${rater}"
-                                           ${selectedRaters.includes(rater) ? 'checked' : ''}>
-                                    <label class="form-check-label" for="annotation-checkbox-${rater}">
-                                        <strong class="rater-badge ${selectedRaters.includes(rater) ? 'rater-selected' : (filteredRaters.includes(rater) ? 'rater-rejected' : 'rater-not-selected')}">${rater}</strong>
-                                    </label>
-                                </div>
-                                <div class="mt-2">
-                    `;
-                    for (let key of annotationKeys) {
-                        const value = annotations[key] || '';
-                        html += `
-                            <div class="annotation-field">
-                                <strong>${escapeHtml(key)}:</strong> ${escapeHtml(value)}
-                            </div>
-                        `;
+            const fieldsToShow = annotationFields && annotationFields.length > 0
+                ? annotationFields
+                : [...new Set(allRaters.flatMap(r => Object.keys(disagreement.annotations[r] || {}).filter(k => k !== 'reason')))];
+
+            if (annotationMode === 'manually_select' && fieldsToShow.length > 0) {
+                annotationsDescription.textContent = 'For each field, see what each rater wrote, select which values to keep (checkboxes), then use the final value as-is or overwrite it.';
+                for (const field of fieldsToShow) {
+                    const valuesByRater = [];
+                    for (const rater of allRaters) {
+                        const v = (disagreement.annotations[rater] || {})[field];
+                        if (v) valuesByRater.push({ rater, value: v });
                     }
+                    const combinedDefault = mergeAndDedupeEnumerationValues(valuesByRater.map(x => x.value));
+                    const fieldId = escapeHtml(field).replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
                     html += `
-                                </div>
+                        <div class="card mb-2 manual-annotation-field-block" data-field="${escapeHtml(field)}">
+                            <div class="card-body">
+                                <label class="form-label fw-bold">${escapeHtml(field)}</label>
+                                <p class="small text-muted mb-2">Select which rater values to keep, or overwrite in the final value box below. Repeated values are merged.</p>
+                                ${valuesByRater.length ? valuesByRater.map(({ rater, value }, i) => {
+                                    const raterClass = selectedRaters.includes(rater) ? 'rater-selected' : (filteredRaters.includes(rater) ? 'rater-rejected' : 'rater-not-selected');
+                                    const cbId = `manual_ann_${fieldId}_${escapeHtml(rater).replace(/\s+/g, '_')}_${i}`;
+                                    return `
+                                    <div class="form-check mb-2 annotation-field">
+                                        <input class="form-check-input manual-annotation-rater-checkbox" type="checkbox" id="${cbId}"
+                                               data-field="${escapeHtml(field)}" data-rater="${escapeHtml(rater)}" data-value="${escapeHtml(value)}" checked>
+                                        <label class="form-check-label" for="${cbId}">
+                                            <strong class="rater-badge ${raterClass}">${escapeHtml(rater)}</strong>: ${escapeHtml(value)}
+                                        </label>
+                                    </div>`;
+                                }).join('') : '<p class="text-muted small mb-2">No values from raters.</p>'}
+                                <label for="final_annotation_${fieldId}" class="form-label small mt-2">Final value (edit to combine differently or overwrite; duplicates are removed)</label>
+                                <input type="text" class="form-control final-annotation-input" id="final_annotation_${fieldId}" 
+                                       data-field="${escapeHtml(field)}" value="${escapeHtml(combinedDefault)}" placeholder="Combine or overwrite">
                             </div>
                         </div>
                     `;
                 }
+                annotationsContainer.innerHTML = html;
+                // When a rater checkbox changes, update the final value input from selected values (deduplicated)
+                annotationsContainer.querySelectorAll('.manual-annotation-rater-checkbox').forEach(cb => {
+                    cb.addEventListener('change', function() {
+                        const field = this.getAttribute('data-field');
+                        const block = annotationsContainer.querySelector(`.manual-annotation-field-block[data-field="${field}"]`);
+                        if (!block) return;
+                        const checkedValues = [];
+                        block.querySelectorAll('.manual-annotation-rater-checkbox:checked').forEach(c => {
+                            const v = c.getAttribute('data-value');
+                            if (v) checkedValues.push(v);
+                        });
+                        const input = block.querySelector('.final-annotation-input');
+                        if (input) input.value = mergeAndDedupeEnumerationValues(checkedValues);
+                    });
+                });
+                annotationsContainer.querySelectorAll('.final-annotation-input').forEach(input => {
+                    input.addEventListener('blur', function() {
+                        const v = this.value.trim();
+                        if (v) this.value = dedupeEnumerationValue(v);
+                    });
+                });
+                html = ''; // already set innerHTML above
             }
-
-            if (html === '') {
-                html = '<p class="text-muted">No annotations available.</p>';
+            if (annotationMode !== 'manually_select' || fieldsToShow.length === 0) {
+                annotationsDescription.textContent = annotationMode === 'gather_all'
+                    ? 'Annotations will be gathered from all raters when you accept. Shown below for reference:'
+                    : 'Select which annotations you wish to keep from each rater:';
+                for (const rater of allRaters) {
+                    const annotations = disagreement.annotations[rater] || {};
+                    const annotationKeys = Object.keys(annotations).filter(k => k !== 'reason');
+                    if (annotationKeys.length > 0) {
+                        html += `
+                            <div class="card mb-2" id="annotations-${rater}">
+                                <div class="card-body">
+                                    <div class="form-check">
+                                        <input class="form-check-input annotation-checkbox" type="checkbox" 
+                                               id="annotation-checkbox-${rater}" value="${rater}"
+                                               ${selectedRaters.includes(rater) ? 'checked' : ''}>
+                                        <label class="form-check-label" for="annotation-checkbox-${rater}">
+                                            <strong class="rater-badge ${selectedRaters.includes(rater) ? 'rater-selected' : (filteredRaters.includes(rater) ? 'rater-rejected' : 'rater-not-selected')}">${rater}</strong>
+                                        </label>
+                                    </div>
+                                    <div class="mt-2">
+                        `;
+                        for (const key of annotationKeys) {
+                            const value = annotations[key] || '';
+                            html += `<div class="annotation-field"><strong>${escapeHtml(key)}:</strong> ${escapeHtml(value)}</div>`;
+                        }
+                        html += `</div></div></div>`;
+                    }
+                }
+                if (html === '') html = '<p class="text-muted">No annotations available.</p>';
+                annotationsContainer.innerHTML = html;
             }
-            annotationsContainer.innerHTML = html;
 
             // Update navigation buttons
             document.getElementById('prevDisagreementBtn').disabled = currentDisagreementIndex === 0;
@@ -776,8 +876,8 @@
         }
 
         function updateProgress() {
-            const total = disagreements.length;
-            const current = currentDisagreementIndex + 1;
+            const total = initialTotalDisagreements;
+            const current = total - disagreements.length + currentDisagreementIndex + 1;
             const percent = total > 0 ? (current / total) * 100 : 0;
 
             document.getElementById('progressBar').style.width = percent + '%';
@@ -826,7 +926,7 @@
                 }
             }
 
-            // Get selected annotations
+            // Get selected annotations (for gather_all / legacy display)
             const selectedAnnotations = {};
             const annotationCheckboxes = document.querySelectorAll('.annotation-checkbox:checked');
             for (let checkbox of annotationCheckboxes) {
@@ -834,6 +934,15 @@
                 if (disagreement.annotations[rater]) {
                     selectedAnnotations[rater] = disagreement.annotations[rater];
                 }
+            }
+
+            const annotationHandling = document.getElementById('annotationHandling').value;
+            const finalAnnotations = {};
+            if (decision === 'accept' && annotationHandling === 'manually_select') {
+                document.querySelectorAll('.final-annotation-input').forEach(input => {
+                    const field = input.getAttribute('data-field');
+                    if (field) finalAnnotations[field] = dedupeEnumerationValue(input.value.trim());
+                });
             }
 
             // Disable buttons
@@ -850,6 +959,8 @@
                     iteration: currentIteration,
                     decision: decision,
                     merged_db_path: mergedDbPath,
+                    annotation_handling: annotationHandling,
+                    final_annotations: finalAnnotations,
                     selected_reasonings: selectedReasonings,
                     selected_annotations: selectedAnnotations
                 })
@@ -883,6 +994,7 @@
                     // All disagreements resolved
                     document.getElementById('disagreementSection').style.display = 'none';
                     document.getElementById('completionSection').style.display = 'block';
+                    loadAgreedArticlesSection();
                 }
 
                 document.getElementById('acceptBtn').disabled = false;
@@ -919,67 +1031,172 @@
             }
         });
 
-        // Initialize remove buttons state
-        updateRemoveButtons();
-        
-        // Merge results back button handler
-        document.getElementById('mergeResultsBackBtn').addEventListener('click', function() {
-            const targetDbPath = document.getElementById('targetDbSelect').value;
-            if (!targetDbPath) {
-                alert('Please select a target database');
+        let agreedArticles = [];
+
+        function loadAgreedArticlesSection() {
+            const block = document.getElementById('agreedArticlesBlock');
+            if (!mergedDbPath || !currentIteration) {
+                block.style.display = 'none';
                 return;
             }
-            
-            if (!mergedDbPath) {
-                alert('No merged database path available');
-                return;
-            }
-            
-            if (!currentIteration) {
-                alert('No iteration specified');
-                return;
-            }
-            
-            // Disable button
-            const btn = document.getElementById('mergeResultsBackBtn');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Merging...';
-            
-            fetch('/api/workflow/solve_content_disagreements/merge_results_back', {
+            fetch('/api/workflow/solve_content_disagreements/get_agreed_articles', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    merged_db_path: mergedDbPath,
-                    target_db_path: targetDbPath,
-                    iteration: currentIteration
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ iteration: currentIteration, merged_db_path: mergedDbPath })
             })
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
-                if (!data.success) {
-                    alert('Error: ' + (data.error || 'Failed to merge results back'));
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-code-branch"></i> Merge Results Back';
+                if (!data.success || !data.agreed_articles || data.agreed_articles.length === 0) {
+                    block.style.display = 'none';
                     return;
                 }
-                
-                // Show success message
-                document.getElementById('mergeResultsMessage').textContent = data.message;
-                document.getElementById('mergeResultsInfo').classList.remove('alert-danger');
-                document.getElementById('mergeResultsInfo').classList.add('alert-success');
-                document.getElementById('mergeResultsInfo').style.display = 'block';
-                
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-check"></i> Merged Successfully';
+                agreedArticles = data.agreed_articles;
+                block.style.display = 'block';
+                document.getElementById('agreedArticlesSummary').textContent =
+                    agreedArticles.length + ' agreed article(s) accepted by all raters. Set final annotations below.';
+                const mode = document.getElementById('annotationHandling').value;
+                document.getElementById('agreedArticlesGatherBlock').style.display = mode === 'gather_all' ? 'block' : 'none';
+                document.getElementById('agreedArticlesManualBlock').style.display = mode === 'manually_select' ? 'block' : 'none';
+                document.getElementById('applyGatherAllStatus').textContent = '';
+                if (mode === 'manually_select') {
+                    const list = document.getElementById('agreedArticlesList');
+                    list.innerHTML = agreedArticles.map((a, idx) => `
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span class="text-truncate me-2" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-index="${idx}">
+                                <i class="fas fa-edit"></i> Edit annotations
+                            </button>
+                        </li>
+                    `).join('');
+                    list.querySelectorAll('button').forEach(btn => {
+                        btn.addEventListener('click', () => openEditAgreedModal(parseInt(btn.getAttribute('data-index'))));
+                    });
+                }
             })
-            .catch(error => {
-                alert('Error: ' + error.message);
+            .catch(() => { block.style.display = 'none'; });
+        }
+
+        function openEditAgreedModal(index) {
+            const a = agreedArticles[index];
+            if (!a) return;
+            const body = document.getElementById('editAgreedAnnotationModalBody');
+            const fields = annotationFields && annotationFields.length > 0 ? annotationFields : [...new Set((Object.values(a.annotations || {})).flatMap(r => Object.keys(r)))];
+            const raters = Object.keys(a.annotations || {});
+            let html = '';
+            fields.forEach(field => {
+                const valuesByRater = [];
+                raters.forEach(rater => {
+                    const v = (a.annotations[rater] || {})[field];
+                    if (v) valuesByRater.push({ rater, value: v });
+                });
+                const combinedDefault = mergeAndDedupeEnumerationValues(valuesByRater.map(x => x.value));
+                const fieldId = 'modal_' + escapeHtml(field).replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '') + '_' + index;
+                html += `
+                    <div class="mb-3 modal-annotation-field-block" data-field="${escapeHtml(field)}">
+                        <label class="form-label fw-bold">${escapeHtml(field)}</label>
+                        <p class="small text-muted mb-2">Select which rater values to keep, or overwrite in the final value box below. Repeated values are merged.</p>
+                        ${valuesByRater.length ? valuesByRater.map(({ rater, value }, i) => {
+                            const cbId = `modal_ann_${fieldId}_${escapeHtml(rater).replace(/\s+/g, '_')}_${i}`;
+                            return `
+                            <div class="form-check mb-2">
+                                <input class="form-check-input modal-annotation-rater-checkbox" type="checkbox" id="${cbId}"
+                                       data-field="${escapeHtml(field)}" data-value="${escapeHtml(value)}" checked>
+                                <label class="form-check-label" for="${cbId}">
+                                    <strong>${escapeHtml(rater)}</strong>: ${escapeHtml(value)}
+                                </label>
+                            </div>`;
+                        }).join('') : '<p class="text-muted small mb-2">No values from raters.</p>'}
+                        <label for="modal_final_${fieldId}" class="form-label small mt-2">Final value (edit to combine differently or overwrite; duplicates are removed)</label>
+                        <input type="text" class="form-control agreed-edit-input" id="modal_final_${fieldId}"
+                               data-field="${escapeHtml(field)}" value="${escapeHtml(combinedDefault)}" placeholder="Combine or overwrite">
+                    </div>
+                `;
+            });
+            body.innerHTML = html;
+            body.dataset.articleIndex = index;
+            // When a rater checkbox changes in the modal, update the final value input (deduplicated)
+            body.querySelectorAll('.modal-annotation-rater-checkbox').forEach(cb => {
+                cb.addEventListener('change', function() {
+                    const field = this.getAttribute('data-field');
+                    const block = body.querySelector(`.modal-annotation-field-block[data-field="${field}"]`);
+                    if (!block) return;
+                    const checkedValues = [];
+                    block.querySelectorAll('.modal-annotation-rater-checkbox:checked').forEach(c => {
+                        const v = c.getAttribute('data-value');
+                        if (v) checkedValues.push(v);
+                    });
+                    const input = block.querySelector('.agreed-edit-input');
+                    if (input) input.value = mergeAndDedupeEnumerationValues(checkedValues);
+                });
+            });
+            body.querySelectorAll('.agreed-edit-input').forEach(input => {
+                input.addEventListener('blur', function() {
+                    const v = this.value.trim();
+                    if (v) this.value = dedupeEnumerationValue(v);
+                });
+            });
+            const modal = new bootstrap.Modal(document.getElementById('editAgreedAnnotationModal'));
+            modal.show();
+        }
+
+        document.getElementById('saveAgreedAnnotationBtn').addEventListener('click', function() {
+            const body = document.getElementById('editAgreedAnnotationModalBody');
+            const index = parseInt(body.dataset.articleIndex, 10);
+            const a = agreedArticles[index];
+            if (!a) return;
+            const finalAnnotations = {};
+            body.querySelectorAll('.agreed-edit-input').forEach(input => {
+                const field = input.getAttribute('data-field');
+                if (field) finalAnnotations[field] = dedupeEnumerationValue(input.value.trim());
+            });
+            fetch('/api/workflow/solve_content_disagreements/save_annotations_article', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    article_id: a.id,
+                    iteration: currentIteration,
+                    merged_db_path: mergedDbPath,
+                    final_annotations: finalAnnotations
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('editAgreedAnnotationModal')).hide();
+                } else {
+                    alert(data.error || 'Failed to save');
+                }
+            })
+            .catch(e => alert('Error: ' + e.message));
+        });
+
+        document.getElementById('applyGatherAllAgreedBtn').addEventListener('click', function() {
+            const btn = this;
+            const status = document.getElementById('applyGatherAllStatus');
+            btn.disabled = true;
+            status.textContent = 'Applying...';
+            fetch('/api/workflow/solve_content_disagreements/apply_annotations_agreed', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    iteration: currentIteration,
+                    merged_db_path: mergedDbPath,
+                    article_ids: []
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
                 btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-code-branch"></i> Merge Results Back';
+                status.textContent = data.success ? (data.message || 'Done.') : (data.error || 'Failed');
+            })
+            .catch(e => {
+                btn.disabled = false;
+                status.textContent = 'Error: ' + e.message;
             });
         });
+
+        // Initialize remove buttons state
+        updateRemoveButtons();
     </script>
 </body>
 </html>

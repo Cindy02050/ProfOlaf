@@ -491,6 +491,7 @@
     <script>
         let articles = [];
         let currentArticleIndex = 0;
+        let initialTotalArticles = 0; // Keep fixed so "Article i of N" stays correct when list shrinks
         let currentIteration = null;
         const annotationFields = {{ annotations | tojson }};
         let currentAnnotations = {};
@@ -593,6 +594,7 @@
                     }
 
                     articles = data.articles || [];
+                    initialTotalArticles = articles.length;
                     
                     if (articles.length === 0) {
                         showError('No articles found for this iteration that need content filtering. All articles may have already been processed.');
@@ -619,11 +621,12 @@
 
             const article = articles[currentArticleIndex];
             
-            // Update progress indicator
+            // Update progress indicator (position in original list, total never shrinks)
             const currentIndexEl = document.getElementById('currentIndex');
             const totalArticlesEl = document.getElementById('totalArticles');
-            if (currentIndexEl) currentIndexEl.textContent = currentArticleIndex + 1;
-            if (totalArticlesEl) totalArticlesEl.textContent = articles.length;
+            const currentPosition = initialTotalArticles - articles.length + currentArticleIndex + 1;
+            if (currentIndexEl) currentIndexEl.textContent = currentPosition;
+            if (totalArticlesEl) totalArticlesEl.textContent = initialTotalArticles;
 
             // Display article information (exact same pattern as Step 5)
             const titleEl = document.getElementById('articleTitle');

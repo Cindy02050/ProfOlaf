@@ -682,6 +682,90 @@ PRIMARY KEY(id, rater))"
             self.conn.rollback()
             raise ValueError(f"Failed to settle screening data: {e}")
 
+    # -------------------------- Final Annotations Table Methods --------------------------
+    def create_annotations_table(self, annotations: List[str]):
+        """Create table for final annotations (one row per accepted article per iteration)."""
+        table_name = "annotations"
+        try:
+            tables_found = self.cursor.execute(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}';"
+            ).fetchall()
+
+            if tables_found != []:
+                # Table exists - ensure annotation columns exist
+                self.cursor.execute(f"PRAGMA table_info({table_name})")
+                existing_columns = [row[1] for row in self.cursor.fetchall()]
+                for annotation in annotations:
+                    if annotation not in existing_columns:
+                        try:
+                            self.cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {annotation} TEXT")
+                        except sqlite3.OperationalError:
+                            pass
+                self.conn.commit()
+                return
+
+            annotation_columns = ", ".join([f"{a} TEXT" for a in annotations]) if annotations else ""
+            columns = f"id TEXT, iteration INTEGER{', ' + annotation_columns if annotation_columns else ''}, PRIMARY KEY(id, iteration)"
+            self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({columns})")
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to create annotations table: {e}")
+
+    def insert_annotations_data(self, article_id: str, iteration: int, **annotation_values: str):
+        """Insert or replace final annotations for an accepted article."""
+        table_name = "annotations"
+        if not self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'").fetchone():
+            self.create_annotations_table(list(annotation_values.keys()))
+        try:
+            keys = ["id", "iteration"] + list(annotation_values.keys())
+            columns = ", ".join(keys)
+            placeholders = ", ".join(["?"] * len(keys))
+            update_clauses = ", ".join([f"{k} = excluded.{k}" for k in annotation_values.keys()])
+            query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders}) ON CONFLICT(id, iteration) DO UPDATE SET {update_clauses}"
+            values = [article_id, iteration] + [annotation_values.get(k, "") or "" for k in annotation_values.keys()]
+            self.cursor.execute(query, values)
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to insert annotations data: {e}")
+
+    def get_annotations_data(self, iteration: int, article_id: str = None):
+        """Get final annotations for an iteration, optionally for one article."""
+        table_name = "annotations"
+        try:
+            self.conn.row_factory = sqlite3.Row
+            if article_id:
+                self.cursor.execute(f"SELECT * FROM {table_name} WHERE iteration = ? AND id = ?", (iteration, article_id))
+            else:
+                self.cursor.execute(f"SELECT * FROM {table_name} WHERE iteration = ?", (iteration,))
+            rows = self.cursor.fetchall()
+            column_names = [d[0] for d in self.cursor.description]
+            result = []
+            for row in rows:
+                result.append(dict(zip(column_names, row)))
+            return result
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get annotations data: {e}")
+        finally:
+            self.conn.row_factory = None
+
+    def get_screening_rows_for_article(self, article_id: str, iteration: int):
+        """Get all screening rows for one article (all raters) for gathering annotations."""
+        table_name = "screening"
+        try:
+            self.conn.row_factory = sqlite3.Row
+            self.cursor.execute(f"SELECT * FROM {table_name} WHERE id = ? AND iteration = ?", (article_id, iteration))
+            rows = self.cursor.fetchall()
+            column_names = [d[0] for d in self.cursor.description]
+            return [dict(zip(column_names, row)) for row in rows]
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get screening rows for article: {e}")
+        finally:
+            self.conn.row_factory = None
+
     # -------------------------- Seen Titles Table Methods --------------------------
     
     def create_seen_titles_table(self):
@@ -954,6 +1038,7 @@ def initialize_db(db_path: str, search_conf: dict):
     db_manager.create_conf_rank_table()
     db_manager.create_workflow_metadata_table()
     db_manager.create_screening_table(annotations)
+    db_manager.create_annotations_table(annotations)
     return db_manager
 
 def get_iteration_setup(db_path: str, **kwargs):

@@ -669,68 +669,98 @@ def configuration():
                          current_config=current_config)
 
 
-@app.route('/api/database/load', methods=['POST'])
-def load_database():
-    """Load a new database file and update search_conf.json"""
+ALLOWED_DB_EXTENSIONS = {'db', 'sqlite', 'sqlite3'}
+
+
+def _validate_and_set_db_path(db_path: str):
+    """Validate db_path and update search_conf. Returns (success, response_tuple)."""
+    if not db_path or not db_path.strip():
+        return False, (jsonify({'success': False, 'error': 'Database path cannot be empty'}), 400)
+    db_path = db_path.strip()
+    if not os.path.exists(db_path):
+        return False, (jsonify({
+            'success': False,
+            'error': f'Database file not found: {db_path}. Please check the path and try again.'
+        }), 404)
     try:
-        data = request.get_json()
-        if not data or 'db_path' not in data:
-            return jsonify({'success': False, 'error': 'Database path not provided'}), 400
-        
-        db_path = data['db_path'].strip()
-        if not db_path:
-            return jsonify({'success': False, 'error': 'Database path cannot be empty'}), 400
-        
-        # Validate that the database file exists
-        if not os.path.exists(db_path):
-            return jsonify({
-                'success': False, 
-                'error': f'Database file not found: {db_path}. Please check the path and try again.'
-            }), 404
-        
-        # Verify it's a valid SQLite database (basic check)
-        try:
-            db_manager = DBManager(db_path)
-            # Try to query the database to verify it's valid
-            _ = db_manager.get_iteration_data()
-        except Exception as e:
+        db_manager = DBManager(db_path)
+        _ = db_manager.get_iteration_data()
+    except Exception as e:
+        return False, (jsonify({
+            'success': False,
+            'error': f'Invalid database file: {str(e)}'
+        }), 400)
+    search_conf = load_search_conf()
+    if search_conf is None:
+        search_conf = {
+            'start_year': 2020,
+            'end_year': 2024,
+            'venue_rank_list': ['A*', 'A', 'B', 'C', 'Q1', 'Q2'],
+            'proxy_key': '',
+            'initial_file': 'confs/seed.txt',
+            'db_path': db_path,
+            'csv_path': 'results.csv',
+            'search_method': 'google_scholar',
+            'annotations': ['Methods', 'Area'],
+            'current_iteration': None
+        }
+    else:
+        search_conf['db_path'] = db_path
+    os.makedirs(CONFS_DIR, exist_ok=True)
+    with open(SEARCH_CONF_PATH, 'w') as f:
+        json.dump(search_conf, f, indent=4)
+    return True, (jsonify({
+        'success': True,
+        'message': f'Database loaded successfully: {db_path}',
+        'db_path': db_path
+    }), 200)
+
+
+@app.route('/api/database/upload', methods=['POST'])
+def upload_database():
+    """Upload a database file to the project's databases folder and set it as the current database."""
+    try:
+        if 'database_file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        file = request.files['database_file']
+        if not file or file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        ext = (file.filename.rsplit('.', 1)[-1] or '').lower()
+        if ext not in ALLOWED_DB_EXTENSIONS:
             return jsonify({
                 'success': False,
-                'error': f'Invalid database file: {str(e)}'
+                'error': f'Invalid file type. Allowed: {", ".join(ALLOWED_DB_EXTENSIONS)}'
             }), 400
-        
-        # Load current search_conf
-        search_conf = load_search_conf()
-        if search_conf is None:
-            # Create a new configuration if it doesn't exist
-            search_conf = {
-                'start_year': 2020,
-                'end_year': 2024,
-                'venue_rank_list': ['A*', 'A', 'B', 'C', 'Q1', 'Q2'],
-                'proxy_key': '',
-                'initial_file': 'confs/seed.txt',
-                'db_path': db_path,
-                'csv_path': 'results.csv',
-                'search_method': 'google_scholar',
-                'annotations': ['Methods', 'Area'],
-                'current_iteration': None
-            }
+        filename = secure_filename(file.filename) or 'uploaded.db'
+        if not filename.lower().endswith(('.db', '.sqlite', '.sqlite3')):
+            filename += '.db'
+        os.makedirs(DATABASES_DIR, exist_ok=True)
+        db_path = os.path.abspath(os.path.join(DATABASES_DIR, filename))
+        file.save(db_path)
+        ok, result = _validate_and_set_db_path(db_path)
+        return result
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/load', methods=['POST'])
+def load_database():
+    """Load a new database file and update search_conf.json (by path or from JSON body)."""
+    try:
+        # Support both: JSON with db_path, or form data with path (for consistency)
+        if request.is_json:
+            data = request.get_json() or {}
+            db_path = (data.get('db_path') or '').strip()
         else:
-            # Update the db_path in existing configuration
-            search_conf['db_path'] = db_path
-        
-        # Save updated search_conf
-        # Ensure confs directory exists
-        os.makedirs(CONFS_DIR, exist_ok=True)
-        with open(SEARCH_CONF_PATH, 'w') as f:
-            json.dump(search_conf, f, indent=4)
-        
-        return jsonify({
-            'success': True,
-            'message': f'Database loaded successfully: {db_path}',
-            'db_path': db_path
-        })
-    
+            db_path = (request.form.get('db_path') or '').strip()
+        if not db_path:
+            return jsonify({'success': False, 'error': 'Database path not provided'}), 400
+        # Resolve relative path: if no path separators, treat as under DATABASES_DIR
+        if os.path.sep not in db_path and '/' not in db_path and '\\' not in db_path:
+            db_path = os.path.join(DATABASES_DIR, db_path)
+        db_path = os.path.abspath(db_path)
+        ok, result = _validate_and_set_db_path(db_path)
+        return result
     except Exception as e:
         return jsonify({
             'success': False,
@@ -3948,13 +3978,15 @@ def solve_content_disagreements_page():
     # Default to current iteration if available
     default_iteration = current_iteration if current_iteration is not None else 0
     
-    # Get main database path from config
+    # Get main database path and annotation fields from config
     main_db_path = search_conf.get('db_path', os.path.join(DATABASES_DIR, 'database.db')) if search_conf else os.path.join(DATABASES_DIR, 'database.db')
+    annotations_config = search_conf.get('annotations', []) if search_conf else []
     
     return render_template('solve_content_disagreements.html',
                          default_iteration=default_iteration,
                          main_db_path=main_db_path,
-                         workflow_info=workflow_info)
+                         workflow_info=workflow_info,
+                         annotations=annotations_config)
 
 
 @app.route('/api/workflow/solve_content_disagreements/get_raters', methods=['POST'])
@@ -4043,6 +4075,12 @@ def merge_content_databases():
         other_dbs = [DBManager(db_path) for db_path in db_paths[1:]]
         if other_dbs:
             merged_db.merge_databases(*other_dbs)
+        
+        # Ensure annotations table exists in merged DB (for final annotations)
+        search_conf = load_search_conf()
+        annotations_config = search_conf.get('annotations', []) if search_conf else []
+        merged_db.create_annotations_table(annotations_config)
+        merged_db.conn.close()
         
         return jsonify({
             'success': True,
@@ -4173,15 +4211,37 @@ def find_content_disagreements():
         return jsonify({'error': str(e)}), 500
 
 
+def _gather_annotations_from_screening(merged_db, article_id: str, iteration: int, annotations_config: list):
+    """Collect all annotation values from all raters and join per field (gather all)."""
+    rows = merged_db.get_screening_rows_for_article(article_id, iteration)
+    result = {}
+    for field in annotations_config:
+        parts = []
+        seen = set()
+        for row in rows:
+            val = (row.get(field) or "").strip()
+            if not val:
+                continue
+            # Split by comma (and similar) so "a, b" and "b" yield unique tokens
+            for part in (p.strip() for p in val.replace(";", ",").split(",") if p.strip()):
+                if part not in seen:
+                    seen.add(part)
+                    parts.append(part)
+        result[field] = ", ".join(parts) if parts else ""
+    return result
+
+
 @app.route('/api/workflow/solve_content_disagreements/save_decision', methods=['POST'])
 def save_content_disagreement_decision():
-    """Save the final decision for a disagreement - updates merged database"""
+    """Save the final decision for a disagreement - updates merged database and optional final annotations table"""
     try:
         data = request.get_json()
         article_id = data.get('article_id')
         iteration = int(data.get('iteration'))
         decision = data.get('decision')  # 'accept' or 'reject'
         merged_db_path = data.get('merged_db_path')
+        annotation_handling = data.get('annotation_handling', 'gather_all')  # 'gather_all' | 'manually_select'
+        final_annotations = data.get('final_annotations', {})  # for manually_select: { field: value }
         
         if not article_id or not decision or not merged_db_path:
             return jsonify({'error': 'Article ID, decision, and merged database path are required'}), 400
@@ -4202,26 +4262,41 @@ def save_content_disagreement_decision():
         
         if decision == 'accept':
             # Accept: set to CONTENT_APPROVED and keep_content=True
-            # Reasonings and annotations are stored in screening table and can be accessed later
             merged_db.update_iteration_data(
                 iteration,
                 article_id,
                 selected=SelectionStage.CONTENT_APPROVED.value,
                 keep_content=True
             )
-            # Settle in screening table (title_settled=True, content_settled=True)
             merged_db.settle_screening_data(iteration, article_id, settled=True, phase="content")
+            
+            # Write final annotations for accepted article (only if annotations are configured)
+            search_conf = load_search_conf()
+            annotations_config = search_conf.get('annotations', []) if search_conf else []
+            if annotations_config:
+                merged_db.create_annotations_table(annotations_config)
+                if annotation_handling == 'gather_all':
+                    annotation_values = _gather_annotations_from_screening(
+                        merged_db, article_id, iteration, annotations_config
+                    )
+                else:
+                    # manually_select: use final_annotations from request; fill missing with empty
+                    annotation_values = {
+                        k: (final_annotations.get(k) or "").strip()
+                        for k in annotations_config
+                    }
+                merged_db.insert_annotations_data(article_id, iteration, **annotation_values)
         else:
-            # Reject: set keep_content flag to False and keep at TITLE_APPROVED (one stage back)
-            # Reasonings and annotations are stored in screening table and can be accessed later
+            # Reject: set keep_content flag to False and keep at TITLE_APPROVED
             merged_db.update_iteration_data(
                 iteration,
                 article_id,
                 selected=SelectionStage.TITLE_APPROVED.value,
                 keep_content=False
             )
-            # Settle in screening table
             merged_db.settle_screening_data(iteration, article_id, settled=True, phase="content")
+        
+        merged_db.conn.close()
         
         # Update workflow state (use merged database path)
         update_workflow_state(
@@ -4239,6 +4314,151 @@ def save_content_disagreement_decision():
         import traceback
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/solve_content_disagreements/get_agreed_articles', methods=['POST'])
+def get_content_agreed_articles():
+    """Get articles where all raters agreed to accept (content), for annotation handling."""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration'))
+        merged_db_path = data.get('merged_db_path')
+        if not merged_db_path or not os.path.exists(merged_db_path):
+            return jsonify({'error': 'Merged database path required'}), 400
+        merged_db = DBManager(merged_db_path)
+        search_conf = load_search_conf()
+        annotations_config = search_conf.get('annotations', []) if search_conf else []
+        # Rows with content_settled=1; group by article id, keep only where all have keep_content=1
+        merged_db.conn.row_factory = sqlite3.Row
+        cur = merged_db.conn.cursor()
+        cur.execute(
+            "SELECT id, keep_content FROM screening WHERE iteration = ? AND content_settled = 1",
+            (iteration,)
+        )
+        rows = cur.fetchall()
+        merged_db.conn.row_factory = None
+        cur.close()
+        # group by id
+        by_id = defaultdict(list)
+        for row in rows:
+            by_id[row[0]].append(1 if row[1] in (1, "1", True) else 0)
+        agreed_ids = [aid for aid, keeps in by_id.items() if all(k == 1 for k in keeps)]
+        # exclude ids that appear in disagreements (multiple raters but different keep_content)
+        try:
+            dis = merged_db.get_disagreements_screening_data(
+                iteration=iteration, title_settled=True, content_settled=False, phase="content"
+            )
+            dis_ids = {r["id"] for r in dis}
+        except Exception:
+            dis_ids = set()
+        agreed_ids = [aid for aid in agreed_ids if aid not in dis_ids]
+        # build list with article details and annotations per rater
+        result = []
+        for article_id in agreed_ids:
+            articles = merged_db.get_iteration_data(iteration=iteration, id=article_id)
+            if not articles:
+                continue
+            art = articles[0]
+            screening_rows = merged_db.get_screening_rows_for_article(article_id, iteration)
+            annotations = {}
+            for row in screening_rows:
+                rater = row.get("rater", "")
+                ann = {k: (row.get(k) or "").strip() for k in annotations_config if row.get(k)}
+                if ann:
+                    annotations[rater] = ann
+            result.append({
+                "id": article_id,
+                "title": art.title or "No title",
+                "url": art.pub_url or art.eprint_url or "",
+                "annotations": annotations,
+            })
+        merged_db.conn.close()
+        return jsonify({"success": True, "agreed_articles": result})
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/workflow/solve_content_disagreements/save_annotations_article', methods=['POST'])
+def save_annotations_article():
+    """Save final annotations for a single article (e.g. when editing agreed article annotations)."""
+    try:
+        data = request.get_json()
+        article_id = data.get('article_id')
+        iteration = int(data.get('iteration'))
+        merged_db_path = data.get('merged_db_path')
+        final_annotations = data.get('final_annotations', {})
+        if not article_id or not merged_db_path or not os.path.exists(merged_db_path):
+            return jsonify({'error': 'Article ID and merged database path required'}), 400
+        search_conf = load_search_conf()
+        annotations_config = search_conf.get('annotations', []) if search_conf else []
+        if not annotations_config:
+            return jsonify({"success": True, "message": "No annotation fields configured"})
+        merged_db = DBManager(merged_db_path)
+        merged_db.create_annotations_table(annotations_config)
+        annotation_values = {k: (final_annotations.get(k) or "").strip() for k in annotations_config}
+        merged_db.insert_annotations_data(article_id, iteration, **annotation_values)
+        merged_db.conn.close()
+        return jsonify({"success": True, "message": "Annotations saved"})
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/workflow/solve_content_disagreements/apply_annotations_agreed', methods=['POST'])
+def apply_annotations_agreed():
+    """Apply gather-all annotations to agreed (already accepted) articles."""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration'))
+        merged_db_path = data.get('merged_db_path')
+        article_ids = data.get('article_ids', [])  # if empty, apply to all agreed
+        if not merged_db_path or not os.path.exists(merged_db_path):
+            return jsonify({'error': 'Merged database path required'}), 400
+        search_conf = load_search_conf()
+        annotations_config = search_conf.get('annotations', []) if search_conf else []
+        if not annotations_config:
+            return jsonify({"success": True, "applied": 0, "message": "No annotation fields configured"})
+        merged_db = DBManager(merged_db_path)
+        merged_db.create_annotations_table(annotations_config)
+        if not article_ids:
+            # discover agreed article ids (same logic as get_agreed_articles)
+            merged_db.conn.row_factory = sqlite3.Row
+            cur = merged_db.conn.cursor()
+            cur.execute(
+                "SELECT id, keep_content FROM screening WHERE iteration = ? AND content_settled = 1",
+                (iteration,)
+            )
+            rows = cur.fetchall()
+            by_id = defaultdict(list)
+            for row in rows:
+                by_id[row[0]].append(1 if row[1] in (1, "1", True) else 0)
+            agreed_ids = [aid for aid, keeps in by_id.items() if all(k == 1 for k in keeps)]
+            try:
+                dis = merged_db.get_disagreements_screening_data(
+                    iteration=iteration, title_settled=True, content_settled=False, phase="content"
+                )
+                dis_ids = {r["id"] for r in dis}
+            except Exception:
+                dis_ids = set()
+            article_ids = [aid for aid in agreed_ids if aid not in dis_ids]
+            merged_db.conn.row_factory = None
+            cur.close()
+        applied = 0
+        for article_id in article_ids:
+            annotation_values = _gather_annotations_from_screening(
+                merged_db, article_id, iteration, annotations_config
+            )
+            merged_db.insert_annotations_data(article_id, iteration, **annotation_values)
+            applied += 1
+        merged_db.conn.close()
+        return jsonify({"success": True, "applied": applied, "message": f"Applied annotations to {applied} article(s)"})
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/workflow/solve_content_disagreements/merge_results_back', methods=['POST'])
@@ -4310,11 +4530,33 @@ def merge_content_results_back():
         if update_data:
             target_db.update_batch_iteration_data(iteration, update_data)
         
+        # 3. Copy annotations table (final annotations) from merged to target for this iteration
+        search_conf = load_search_conf()
+        annotations_config = search_conf.get('annotations', []) if search_conf else []
+        target_db.create_annotations_table(annotations_config)
+        try:
+            merged_db.conn.row_factory = sqlite3.Row
+            ann_cursor = merged_db.conn.cursor()
+            ann_cursor.execute("SELECT * FROM annotations WHERE iteration = ?", (iteration,))
+            ann_rows = ann_cursor.fetchall()
+            if ann_rows:
+                ann_columns = [d[0] for d in ann_cursor.description]
+                ann_cols_str = ', '.join(ann_columns)
+                ann_placeholders = ', '.join(['?'] * len(ann_columns))
+                ann_insert = f"INSERT OR REPLACE INTO annotations ({ann_cols_str}) VALUES ({ann_placeholders})"
+                for row in ann_rows:
+                    target_db.cursor.execute(ann_insert, [row[col] for col in ann_columns])
+            merged_db.conn.row_factory = None
+            ann_cursor.close()
+        except sqlite3.OperationalError:
+            # Annotations table may not exist in merged DB if no annotations config
+            pass
+        
         target_db.conn.commit()
         merged_db.conn.close()
         target_db.conn.close()
         
-        # 3. Update workflow state to use target database
+        # 4. Update workflow state to use target database
         update_workflow_state(
             db_path=target_db_path,
             current_iteration=iteration,
