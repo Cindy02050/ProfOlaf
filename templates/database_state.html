@@ -167,18 +167,36 @@
                             </div>
                             {% endif %}
 
-                            <!-- Individual Articles Table -->
-                            {% if articles %}
+                            <!-- Single table view: Main, Screening, or Annotations -->
                             <div class="mt-5">
-                                <h5 class="mb-3"><i class="fas fa-list"></i> Database Entries ({{ articles|length }}{% if db_stats and db_stats.total_articles > articles|length %} of {{ db_stats.total_articles }}{% endif %})</h5>
-                                {% if db_stats and db_stats.total_articles > articles|length %}
-                                <div class="alert alert-info mb-3">
-                                    <i class="fas fa-info-circle"></i> 
-                                    Showing first {{ articles|length }} entries. Total entries: {{ db_stats.total_articles }}
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                                    <h5 class="mb-0"><i class="fas fa-list"></i> Database entries</h5>
+                                    <select class="form-select form-select-sm" id="tableViewSelect" style="width: auto;">
+                                        <option value="main">Main table</option>
+                                        <option value="screening">Screening (by rater)</option>
+                                        <option value="annotations">Annotations</option>
+                                    </select>
+                                    <div id="screeningControls" class="d-flex align-items-center gap-2 d-none">
+                                        <select class="form-select form-select-sm" id="screeningRaterSelect" style="width: auto; min-width: 140px;">
+                                            <option value="">-- Select rater --</option>
+                                        </select>
+                                        <input type="number" class="form-control form-control-sm" id="screeningIterationFilter" placeholder="Iter. (all)" min="0" style="width: 90px;">
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-primary d-none" id="loadTableBtn"><i class="fas fa-sync-alt"></i> Load</button>
                                 </div>
-                                {% endif %}
-                                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                                    <table class="table table-bordered table-hover table-sm" style="font-size: 0.9rem;">
+                                <div id="tableViewInfo" class="text-muted small mb-2"></div>
+
+                                <!-- Main table (iterations) -->
+                                <div id="mainTableView">
+                                    {% if articles %}
+                                    {% if db_stats and db_stats.total_articles > articles|length %}
+                                    <div class="alert alert-info mb-3">
+                                        <i class="fas fa-info-circle"></i> 
+                                        Showing first {{ articles|length }} entries. Total entries: {{ db_stats.total_articles }}
+                                    </div>
+                                    {% endif %}
+                                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                                        <table class="table table-bordered table-hover table-striped table-sm" style="font-size: 0.9rem;">
                                         <thead class="table-light sticky-top">
                                             <tr>
                                                 <th style="width: 5%">ID</th>
@@ -196,13 +214,9 @@
                                             {% for article in articles %}
                                             <tr>
                                                 <td>
-                                                    <small class="text-muted">{{ article.id[:8] }}...</small>
+                                                    <small class="text-muted">{{ article.id }}</small>
                                                 </td>
-                                                <td>
-                                                    <div style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ article.title }}">
-                                                        {{ article.title }}
-                                                    </div>
-                                                </td>
+                                                <td>{{ article.title }}</td>
                                                 <td>
                                                     <div style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ article.authors }}">
                                                         {{ article.authors }}
@@ -251,10 +265,24 @@
                                             </tr>
                                             {% endfor %}
                                         </tbody>
-                                    </table>
+                                        </table>
+                                    </div>
+                                    {% else %}
+                                    <p class="text-muted">No entries in the main table.</p>
+                                    {% endif %}
+                                </div>
+
+                                <!-- Dynamic table for Screening or Annotations -->
+                                <div id="dynamicTableView" style="display: none;">
+                                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                                        <table class="table table-bordered table-hover table-striped table-sm" style="font-size: 0.9rem;" id="dynamicTable">
+                                            <thead class="table-light sticky-top"><tr id="dynamicTableHead"></tr></thead>
+                                            <tbody id="dynamicTableBody"></tbody>
+                                        </table>
+                                    </div>
+                                    <p class="text-muted small mt-2 mb-0" id="dynamicTableCount"></p>
                                 </div>
                             </div>
-                            {% endif %}
 
                         {% elif db_exists %}
                             <div class="alert alert-warning">
@@ -413,6 +441,208 @@
                 });
             }
         }
+
+        // --- Table view: Main / Screening / Annotations (single table area) ---
+        function escapeHtml(text) {
+            if (text == null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+        const SCREENING_FIRST_COLS = ['id', 'title', 'keep_title', 'reason_title', 'keep_content', 'reason_content'];
+        const SCREENING_HEADER_NAMES = {
+            id: 'ID',
+            title: 'Title',
+            keep_title: 'Screening title decision',
+            reason_title: 'Screening title reason',
+            keep_content: 'Screening content decision',
+            reason_content: 'Screening content reason'
+        };
+        function screeningColumnsOrder(allKeys) {
+            const rest = allKeys.filter(k => !SCREENING_FIRST_COLS.includes(k));
+            return SCREENING_FIRST_COLS.filter(k => allKeys.includes(k)).concat(rest);
+        }
+        function formatScreeningCell(col, value) {
+            if (value === null || value === undefined) value = '';
+            if (col === 'keep_title' || col === 'keep_content') {
+                const v = value === 1 || value === '1' || value === true || value === 'true';
+                return v ? '<span class="badge bg-success">Keep</span>' : '<span class="badge bg-secondary">Reject</span>';
+            }
+            if (col === 'title_settled' || col === 'content_settled') {
+                const v = value === 1 || value === '1' || value === true;
+                return v ? 'Yes' : 'No';
+            }
+            return escapeHtml(value);
+        }
+        function renderDynamicTable(rows, columns, options) {
+            const theadRow = document.getElementById('dynamicTableHead');
+            const tbody = document.getElementById('dynamicTableBody');
+            const countEl = document.getElementById('dynamicTableCount');
+            const formatCell = options.formatCell || ((col, v) => escapeHtml(v == null ? '' : v));
+            const headerNames = options.headerNames || {};
+            theadRow.innerHTML = columns.map(c => {
+                const name = headerNames[c] || c;
+                return '<th class="text-center" style="font-weight: 600;">' + escapeHtml(name) + '</th>';
+            }).join('');
+            tbody.innerHTML = rows.map(row => {
+                return '<tr>' + columns.map(col => {
+                    const v = row[col];
+                    const content = formatCell(col, v);
+                    const align = (col === 'id' || col === 'iteration' || col === 'keep_title' || col === 'keep_content' || col === 'title_settled' || col === 'content_settled') ? ' text-center' : '';
+                    return '<td class="align-middle' + align + '">' + content + '</td>';
+                }).join('') + '</tr>';
+            }).join('');
+            countEl.textContent = rows.length + ' row(s).';
+        }
+
+        const tableViewSelect = document.getElementById('tableViewSelect');
+        const mainTableView = document.getElementById('mainTableView');
+        const dynamicTableView = document.getElementById('dynamicTableView');
+        const screeningControls = document.getElementById('screeningControls');
+        const loadTableBtn = document.getElementById('loadTableBtn');
+        const tableViewInfo = document.getElementById('tableViewInfo');
+        const screeningRaterSelect = document.getElementById('screeningRaterSelect');
+        const screeningIterationFilter = document.getElementById('screeningIterationFilter');
+
+        function loadScreeningData() {
+            const rater = screeningRaterSelect && screeningRaterSelect.value ? screeningRaterSelect.value.trim() : '';
+            if (!rater) {
+                document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">Select a rater</th>';
+                document.getElementById('dynamicTableBody').innerHTML = '';
+                document.getElementById('dynamicTableCount').textContent = '';
+                return;
+            }
+            const iteration = screeningIterationFilter && screeningIterationFilter.value.trim() !== '' ? parseInt(screeningIterationFilter.value, 10) : '';
+            const url = '/api/database/screening_rows?rater=' + encodeURIComponent(rater) + (iteration !== '' && !isNaN(iteration) ? '&iteration=' + iteration : '');
+            document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">Loading...</th>';
+            document.getElementById('dynamicTableBody').innerHTML = '';
+            document.getElementById('dynamicTableCount').textContent = '';
+            fetch(url)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">Error</th>';
+                        document.getElementById('dynamicTableBody').innerHTML = '';
+                        document.getElementById('dynamicTableCount').textContent = data.error || 'Failed to load.';
+                        return;
+                    }
+                    const rows = data.rows || [];
+                    if (rows.length === 0) {
+                        document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">No data</th>';
+                        document.getElementById('dynamicTableBody').innerHTML = '';
+                        document.getElementById('dynamicTableCount').textContent = 'No rows for this rater.';
+                        return;
+                    }
+                    const allKeys = Object.keys(rows[0]);
+                    const columns = screeningColumnsOrder(allKeys);
+                    renderDynamicTable(rows, columns, { formatCell: formatScreeningCell, headerNames: SCREENING_HEADER_NAMES });
+                })
+                .catch(err => {
+                    document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">Error</th>';
+                    document.getElementById('dynamicTableBody').innerHTML = '';
+                    document.getElementById('dynamicTableCount').textContent = err.message;
+                });
+        }
+
+        function loadAnnotationsData() {
+            document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">Loading...</th>';
+            document.getElementById('dynamicTableBody').innerHTML = '';
+            document.getElementById('dynamicTableCount').textContent = '';
+            fetch('/api/database/annotations_table')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">Error</th>';
+                        document.getElementById('dynamicTableBody').innerHTML = '';
+                        document.getElementById('dynamicTableCount').textContent = data.error || 'Failed to load.';
+                        return;
+                    }
+                    const rows = data.rows || [];
+                    if (rows.length === 0) {
+                        document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">No data</th>';
+                        document.getElementById('dynamicTableBody').innerHTML = '';
+                        document.getElementById('dynamicTableCount').textContent = 'Annotations table is empty or does not exist.';
+                        return;
+                    }
+                    const allKeys = Object.keys(rows[0]);
+                    const columns = annotationsColumnsOrder(allKeys);
+                    renderDynamicTable(rows, columns, { formatCell: formatAnnotationsCell });
+                })
+                .catch(err => {
+                    document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">Error</th>';
+                    document.getElementById('dynamicTableBody').innerHTML = '';
+                    document.getElementById('dynamicTableCount').textContent = err.message;
+                });
+        }
+
+        const ANNOTATIONS_FIRST_COLS = ['id', 'title', 'iteration'];
+        function annotationsColumnsOrder(allKeys) {
+            const rest = allKeys.filter(k => !ANNOTATIONS_FIRST_COLS.includes(k));
+            return ANNOTATIONS_FIRST_COLS.filter(k => allKeys.includes(k)).concat(rest);
+        }
+        function formatAnnotationsCell(col, value) {
+            if (value === null || value === undefined) value = '';
+            return escapeHtml(value);
+        }
+
+        function switchTableView() {
+            const view = tableViewSelect ? tableViewSelect.value : 'main';
+            if (view === 'main') {
+                if (mainTableView) mainTableView.style.display = 'block';
+                if (dynamicTableView) dynamicTableView.style.display = 'none';
+                if (screeningControls) screeningControls.classList.add('d-none');
+                if (loadTableBtn) loadTableBtn.classList.add('d-none');
+                if (tableViewInfo) tableViewInfo.textContent = '';
+            } else if (view === 'screening') {
+                if (mainTableView) mainTableView.style.display = 'none';
+                if (dynamicTableView) dynamicTableView.style.display = 'block';
+                if (screeningControls) screeningControls.classList.remove('d-none');
+                if (loadTableBtn) loadTableBtn.classList.remove('d-none');
+                if (tableViewInfo) tableViewInfo.textContent = 'Select a rater and click Load.';
+                loadScreeningData();
+            } else {
+                if (mainTableView) mainTableView.style.display = 'none';
+                if (dynamicTableView) dynamicTableView.style.display = 'block';
+                if (screeningControls) screeningControls.classList.add('d-none');
+                if (loadTableBtn) loadTableBtn.classList.remove('d-none');
+                if (tableViewInfo) tableViewInfo.textContent = 'Final annotations for accepted articles. Click Load to fetch.';
+                document.getElementById('dynamicTableHead').innerHTML = '<th class="text-center">Click Load to fetch annotations.</th>';
+                document.getElementById('dynamicTableBody').innerHTML = '';
+                document.getElementById('dynamicTableCount').textContent = '';
+            }
+        }
+        if (tableViewSelect) tableViewSelect.addEventListener('change', switchTableView);
+        switchTableView();
+
+        if (screeningRaterSelect) {
+            fetch('/api/database/screening_raters')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.raters && data.raters.length) {
+                        screeningRaterSelect.innerHTML = '<option value="">-- Select rater --</option>' + data.raters.map(r => '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + '</option>').join('');
+                    }
+                })
+                .catch(() => {});
+        }
+        if (screeningRaterSelect) screeningRaterSelect.addEventListener('change', function() {
+            if (tableViewSelect && tableViewSelect.value === 'screening') loadScreeningData();
+        });
+        if (screeningIterationFilter) screeningIterationFilter.addEventListener('change', function() {
+            if (tableViewSelect && tableViewSelect.value === 'screening' && screeningRaterSelect && screeningRaterSelect.value) loadScreeningData();
+        });
+        if (loadTableBtn) loadTableBtn.addEventListener('click', function() {
+            const view = tableViewSelect ? tableViewSelect.value : 'main';
+            if (view === 'screening') {
+                const rater = screeningRaterSelect && screeningRaterSelect.value ? screeningRaterSelect.value.trim() : '';
+                if (!rater) {
+                    alert('Please select a rater.');
+                    return;
+                }
+                loadScreeningData();
+            } else if (view === 'annotations') {
+                loadAnnotationsData();
+            }
+        });
     </script>
 </body>
 </html>

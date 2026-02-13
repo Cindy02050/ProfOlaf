@@ -766,6 +766,79 @@ PRIMARY KEY(id, rater))"
         finally:
             self.conn.row_factory = None
 
+    def get_screening_raters(self) -> List[str]:
+        """Get distinct rater names from the screening table."""
+        table_name = "screening"
+        try:
+            self.cursor.execute(f"SELECT DISTINCT rater FROM {table_name} ORDER BY rater")
+            rows = self.cursor.fetchall()
+            return [row[0] or "" for row in rows if row[0]]
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get screening raters: {e}")
+
+    def get_screening_rows_by_rater(self, rater: str, iteration: int = None) -> List[dict]:
+        """Get all screening rows for a given rater, optionally filtered by iteration."""
+        table_name = "screening"
+        try:
+            self.conn.row_factory = sqlite3.Row
+            if iteration is not None:
+                self.cursor.execute(f"SELECT * FROM {table_name} WHERE rater = ? AND iteration = ? ORDER BY iteration, id", (rater, iteration))
+            else:
+                self.cursor.execute(f"SELECT * FROM {table_name} WHERE rater = ? ORDER BY iteration, id", (rater,))
+            rows = self.cursor.fetchall()
+            column_names = [d[0] for d in self.cursor.description]
+            return [dict(zip(column_names, row)) for row in rows]
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get screening rows by rater: {e}")
+        finally:
+            self.conn.row_factory = None
+
+    def get_all_annotations_data(self) -> List[dict]:
+        """Get all rows from the annotations table (all iterations)."""
+        table_name = "annotations"
+        try:
+            self.conn.row_factory = sqlite3.Row
+            self.cursor.execute(f"SELECT * FROM {table_name} ORDER BY iteration, id")
+            rows = self.cursor.fetchall()
+            if not rows:
+                return []
+            column_names = [d[0] for d in self.cursor.description]
+            return [dict(zip(column_names, row)) for row in rows]
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get annotations data: {e}")
+        finally:
+            self.conn.row_factory = None
+
+    def get_all_annotations_data_with_titles(self) -> List[dict]:
+        """Get all annotation rows with title from iterations table. Column order: id, title, iteration, then annotation columns."""
+        try:
+            self.conn.row_factory = sqlite3.Row
+            self.cursor.execute(
+                "SELECT a.*, i.title FROM annotations a "
+                "LEFT JOIN iterations i ON a.id = i.id AND a.iteration = i.iteration "
+                "ORDER BY a.iteration, a.id"
+            )
+            rows = self.cursor.fetchall()
+            if not rows:
+                return []
+            column_names = [d[0] for d in self.cursor.description]
+            # desired order: id, title, iteration, then other annotation columns (excluding id, iteration)
+            annotation_cols = [c for c in column_names if c not in ("id", "title", "iteration")]
+            desired_order = ["id", "title", "iteration"] + annotation_cols
+            result = []
+            for row in rows:
+                row_dict = dict(zip(column_names, row))
+                result.append({k: row_dict.get(k) for k in desired_order})
+            return result
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get annotations data with titles: {e}")
+        finally:
+            self.conn.row_factory = None
+
     # -------------------------- Seen Titles Table Methods --------------------------
     
     def create_seen_titles_table(self):

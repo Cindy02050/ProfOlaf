@@ -928,6 +928,73 @@ def database_state():
                          SelectionStage=SelectionStage)
 
 
+@app.route('/api/database/screening_raters', methods=['GET'])
+def api_screening_raters():
+    """Return distinct rater names from the screening table."""
+    try:
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'success': False, 'error': 'Database not configured'}), 400
+        db_path = search_conf.get('db_path')
+        if not os.path.exists(db_path):
+            return jsonify({'success': False, 'error': 'Database file not found'}), 404
+        db_manager = DBManager(db_path)
+        try:
+            raters = db_manager.get_screening_raters()
+        except Exception:
+            raters = []  # e.g. screening table does not exist
+        return jsonify({'success': True, 'raters': raters})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/screening_rows', methods=['GET'])
+def api_screening_rows():
+    """Return screening table rows for a given rater (optional iteration filter)."""
+    try:
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'success': False, 'error': 'Database not configured'}), 400
+        db_path = search_conf.get('db_path')
+        if not os.path.exists(db_path):
+            return jsonify({'success': False, 'error': 'Database file not found'}), 404
+        rater = request.args.get('rater', '').strip()
+        if not rater:
+            return jsonify({'success': False, 'error': 'Rater is required'}), 400
+        iteration = request.args.get('iteration', type=int)
+        db_manager = DBManager(db_path)
+        try:
+            rows = db_manager.get_screening_rows_by_rater(rater, iteration=iteration)
+        except Exception:
+            rows = []
+        return jsonify({'success': True, 'rows': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/annotations_table', methods=['GET'])
+def api_annotations_table():
+    """Return all rows from the annotations table."""
+    try:
+        search_conf = load_search_conf()
+        if not search_conf or 'db_path' not in search_conf:
+            return jsonify({'success': False, 'error': 'Database not configured'}), 400
+        db_path = search_conf.get('db_path')
+        if not os.path.exists(db_path):
+            return jsonify({'success': False, 'error': 'Database file not found'}), 404
+        db_manager = DBManager(db_path)
+        try:
+            rows = db_manager.get_all_annotations_data_with_titles()
+        except Exception:
+            try:
+                rows = db_manager.get_all_annotations_data()
+            except Exception:
+                rows = []  # e.g. annotations table does not exist
+        return jsonify({'success': True, 'rows': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/workflow', methods=['GET'])
 def workflow_stage():
     """Workflow stage page - shows current workflow progress"""
