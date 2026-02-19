@@ -2,8 +2,15 @@ import argparse
 import json
 from enum import Enum
 import random
-from utils.db_management import DBManager, SelectionStage
-from utils.db_management import ArticleData
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.db_management import (
+    DBManager, 
+    initialize_db, 
+    ArticleData,
+    SelectionStage,
+)
 
 class Phase(Enum):
     DEFAULT = "default"
@@ -21,17 +28,14 @@ def parse_args():
     parser.add_argument('--length', help='length', type=int, required=True)
     parser.add_argument('--search_conf', help='search conf', type=str, required=True)
     parser.add_argument('--iterations', help='iterations', type=int, required=True)
-
+    # multiple raters (each value is one rater name)
+    parser.add_argument('--raters', help='raters', type=str, required=True, nargs='+')
     args = parser.parse_args()
     return args
 
 
 def generate_empty_db(db_path: str, search_conf: dict):
-    db_manager = DBManager(db_path)
-    db_manager.initialize_db(db_path, search_conf)
-    db_manager.cursor.close()
-    db_manager.conn.close()
-
+    db_manager = initialize_db(db_path, search_conf)
     return db_manager
 
 def add_iteration_data(db_manager: DBManager, index: int, iteration: int, search_conf: dict, selected: SelectionStage):
@@ -53,17 +57,18 @@ def add_iteration_data(db_manager: DBManager, index: int, iteration: int, search
             )
 
 def add_screening_data(
-    db_manager: DBManager, 
-    index: int, 
-    iteration: int, 
-    rater: str, 
-    screening_phase: str, 
-    settled: bool, 
-    keep: bool, 
-    reason: str, 
-    search_conf: dict, 
-    **annotations: str
-    ) -> None:
+    db_manager: DBManager,
+    index: int,
+    iteration: int,
+    rater: str,
+    screening_phase: str,
+    settled: bool,
+    keep: bool,
+    reason: str,
+    search_conf: dict,
+    title: str | None = None,
+    **annotations: str,
+) -> None:
     db_manager.insert_screening_data(
         article_id=f"article_{index}",
         rater=rater,
@@ -72,7 +77,7 @@ def add_screening_data(
         reason=reason,
         settled=settled,
         screening_phase=screening_phase,
-        title=f"title_{index}",
+        title=title if title is not None else f"title_{index}",
         **annotations
     )
 
@@ -233,25 +238,24 @@ def populate_content_solved(db_manager: DBManager, length: int, raters: list[str
             **final_annotations
         )
     
-def populate_db(db_manager: DBManager, phase: Phase, length: int, iterations: int):
+def populate_db(db_manager: DBManager, phase: Phase, length: int, iterations: int, raters: list[str], search_conf: dict):
     match phase:
         case Phase.DEFAULT:
-            populate_default(db_manager, length)
+            populate_default(db_manager, length, iterations, search_conf)
         case Phase.TITLE_SCREENED:
-            populate_title_screened(db_manager, length)
+            populate_title_screened(db_manager, length, raters, search_conf)
         case Phase.TITLE_SOLVED:
-            populate_title_solved(db_manager, length)
+            populate_title_solved(db_manager, length, raters, search_conf)
         case Phase.CONTENT_SCREENED:
-            populate_content_screened(db_manager, length)
+            populate_content_screened(db_manager, length, raters, search_conf)
         case Phase.CONTENT_SOLVED:
-            populate_content_solved(db_manager, length)
+            populate_content_solved(db_manager, length, raters, search_conf)
 
 if __name__ == "__main__":
     args = parse_args()
     with open(args.search_conf, "r") as f:
         search_conf = json.load(f)
     db_manager = generate_empty_db(args.db_path, search_conf)
-    populate_db(db_manager, args.phase, args.length, args.iterations)
+    populate_db(db_manager, args.phase, args.length, args.iterations, args.raters, search_conf)
     print("Database populated successfully: ", args.db_path)
     db_manager.conn.close()
-    db_manager.cursor.close()
