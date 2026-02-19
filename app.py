@@ -743,6 +743,34 @@ def upload_database():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/database/upload_file', methods=['POST'])
+def upload_database_file():
+    """Upload a database file to the project's databases folder. Returns the path for use in merge steps (does not set as current database)."""
+    try:
+        if 'database_file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        file = request.files['database_file']
+        if not file or file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        ext = (file.filename.rsplit('.', 1)[-1] or '').lower()
+        if ext not in ALLOWED_DB_EXTENSIONS:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid file type. Allowed: {", ".join(ALLOWED_DB_EXTENSIONS)}'
+            }), 400
+        filename = secure_filename(file.filename) or 'uploaded.db'
+        if not filename.lower().endswith(('.db', '.sqlite', '.sqlite3')):
+            filename += '.db'
+        os.makedirs(DATABASES_DIR, exist_ok=True)
+        dest_path = os.path.join(DATABASES_DIR, filename)
+        file.save(dest_path)
+        # Return path relative to project root so merge APIs can resolve it
+        db_path = os.path.join(DATABASES_DIR, filename)
+        return jsonify({'success': True, 'db_path': db_path})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/database/load', methods=['POST'])
 def load_database():
     """Load a new database file and update search_conf.json (by path or from JSON body)."""
@@ -2665,9 +2693,10 @@ def filter_by_title_page():
 
 @app.route('/api/workflow/filter_by_title/articles', methods=['GET'])
 def get_articles_for_title_filter():
-    """Get list of articles that need title filtering for an iteration"""
+    """Get list of articles that need title filtering for an iteration. Excludes articles already screened by this rater (resumable)."""
     try:
         iteration = int(request.args.get('iteration'))
+        rater = (request.args.get('rater') or '').strip()
         
         # Get database path from config
         search_conf = load_search_conf()
@@ -2677,16 +2706,21 @@ def get_articles_for_title_filter():
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
         
+        # Exclude articles this rater has already screened (so resume shows only remaining)
+        excluded_ids = set()
+        if rater:
+            try:
+                excluded_ids = set(db_manager.get_screened_article_ids(iteration=iteration, rater=rater))
+            except Exception:
+                pass
+        
         # Check if metadata filtering step was skipped
         workflow_state = load_workflow_state()
         skipped_steps = workflow_state.get('skipped_steps', [])
         metadata_skipped = 'Step 5: Filter by Metadata' in skipped_steps
         
         # Get articles that need title filtering
-        # If metadata filtering was skipped, also include NOT_SELECTED articles
-        # (they should have been auto-approved but might not have been updated)
         if metadata_skipped:
-            # Get articles that are NOT_SELECTED or METADATA_APPROVED but not yet title-filtered
             articles_metadata = db_manager.get_iteration_data(
                 iteration=iteration,
                 selected=SelectionStage.METADATA_APPROVED
@@ -2695,7 +2729,6 @@ def get_articles_for_title_filter():
                 iteration=iteration,
                 selected=SelectionStage.NOT_SELECTED
             )
-            # Combine and deduplicate by ID
             article_dict = {}
             for article in articles_metadata:
                 article_dict[article.id] = article
@@ -2704,37 +2737,33 @@ def get_articles_for_title_filter():
                     article_dict[article.id] = article
             articles = list(article_dict.values())
         else:
-            # Normal case: get METADATA_APPROVED articles
-            # But also check for NOT_SELECTED if no METADATA_APPROVED found (in case step wasn't run)
             articles = db_manager.get_iteration_data(
                 iteration=iteration,
                 selected=SelectionStage.METADATA_APPROVED
             )
-            # If no METADATA_APPROVED articles found, also try NOT_SELECTED
-            # (this handles the case where metadata filtering step wasn't run)
             if len(articles) == 0:
                 articles = db_manager.get_iteration_data(
                     iteration=iteration,
                     selected=SelectionStage.NOT_SELECTED
                 )
         
-        # Filter out articles that are already title-approved or title-filtered-out
-        # (check if selected status is TITLE_APPROVED or higher)
+        # Filter out already title-approved and already screened by this rater
         articles_data = []
         for article in articles:
-            # Check if article is already title-approved or higher
             selected_int = int(article.selected) if article.selected is not None else 0
-            # Only include if not already title-approved or higher
-            if selected_int < SelectionStage.TITLE_APPROVED.value:
-                articles_data.append({
-                    'id': article.id,
-                    'title': article.title or '',
-                    'venue': article.venue or '',
-                    'pub_year': article.pub_year or '',
-                    'eprint_url': article.eprint_url or '',
-                    'authors': article.authors or '',
-                    'title_reason': getattr(article, 'title_reason', '') or ''
-                })
+            if selected_int >= SelectionStage.TITLE_APPROVED.value:
+                continue
+            if article.id in excluded_ids:
+                continue
+            articles_data.append({
+                'id': article.id,
+                'title': article.title or '',
+                'venue': article.venue or '',
+                'pub_year': article.pub_year or '',
+                'eprint_url': article.eprint_url or '',
+                'authors': article.authors or '',
+                'title_reason': getattr(article, 'title_reason', '') or ''
+            })
         
         return jsonify({
             'success': True,
@@ -2801,6 +2830,20 @@ def save_title_filter_result():
             reason=reason or '',
             screening_phase="title"
         )
+        
+        # Update iterations table so this article is no longer in "needs title filter" list (enables resume)
+        if decision == 'approve':
+            db_manager.update_iteration_data(
+                iteration, article_id,
+                selected=SelectionStage.TITLE_APPROVED.value,
+                keep_title=True
+            )
+        else:
+            db_manager.update_iteration_data(
+                iteration, article_id,
+                selected=SelectionStage.METADATA_APPROVED.value,
+                keep_title=False
+            )
         
         # Update workflow state
         update_workflow_state(
@@ -3011,9 +3054,10 @@ def filter_by_content_page():
 
 @app.route('/api/workflow/filter_by_content/articles', methods=['GET'])
 def get_articles_for_content_filter():
-    """Get articles that need content filtering (title-approved articles)"""
+    """Get articles that need content filtering (title-approved). Excludes already screened by this rater (resumable)."""
     try:
         iteration = int(request.args.get('iteration', 0))
+        rater = (request.args.get('rater') or '').strip()
         
         # Get database path from config
         search_conf = load_search_conf()
@@ -3023,17 +3067,27 @@ def get_articles_for_content_filter():
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
         
+        # Exclude articles this rater has already content-screened (resume)
+        excluded_ids = set()
+        if rater:
+            try:
+                excluded_ids = set(db_manager.get_screened_article_ids(iteration=iteration, rater=rater, phase="content"))
+            except Exception:
+                pass
+        
         # Get articles with TITLE_APPROVED status that haven't been content-filtered yet
         articles = db_manager.get_iteration_data(
             iteration=iteration,
             selected=SelectionStage.TITLE_APPROVED
         )
         
-        # Filter out articles that are already content-approved or content-filtered-out
+        # Filter out already content-approved and already content-screened by this rater
         filtered_articles = []
         for article in articles:
+            if article.id in excluded_ids:
+                continue
             selected_int = int(article.selected) if article.selected is not None else 0
-            keep_content = getattr(article, 'keep_content', True)  # Default to True (not filtered) if not set
+            keep_content = getattr(article, 'keep_content', True)
             if selected_int < SelectionStage.CONTENT_APPROVED.value and keep_content:
                 filtered_articles.append(article)
         
@@ -3152,6 +3206,19 @@ def save_content_filter_result():
                 decision=decision_char,
                 reason=reason or '',
                 screening_phase="content"
+            )
+        
+        # Update iterations table so this article is no longer in "needs content filter" list (enables resume)
+        if decision == 'approve':
+            db_manager.update_iteration_data(
+                iteration, article_id,
+                selected=SelectionStage.CONTENT_APPROVED.value,
+                keep_content=True
+            )
+        else:
+            db_manager.update_iteration_data(
+                iteration, article_id,
+                keep_content=False
             )
         
         # Update workflow state

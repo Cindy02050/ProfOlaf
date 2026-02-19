@@ -12,10 +12,10 @@
             margin-bottom: 2rem;
         }
         .article-card .card-body {
-            display: grid;
-            grid-template-rows: 1fr auto;
+            display: flex;
+            flex-direction: column;
             min-height: 800px;
-            height: 800px;
+            /* height: auto so the card grows when annotations are many and does not overlap */
         }
         .article-content {
             display: flex;
@@ -67,6 +67,8 @@
             padding-top: 1.5rem;
             border-top: 1px solid #dee2e6;
             background-color: #fff;
+            flex: 0 0 auto;
+            min-width: 0;
         }
         .annotations-section {
             margin-top: 1rem;
@@ -74,6 +76,9 @@
             background-color: #f8f9fa;
             border-radius: 0.5rem;
             border: 1px solid #dee2e6;
+            max-height: 50vh;
+            overflow-y: auto;
+            min-width: 0;
         }
         .progress-indicator {
             font-size: 1.1rem;
@@ -200,6 +205,7 @@
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle"></i> 
                             This step allows you to filter articles based on their full content (abstract and introduction). For each article, decide whether to keep it (approve) or reject it, provide a reason, and optionally fill in annotation fields.
+                            Progress is saved after each decision; you can close and resume later by loading again with the same iteration and rater.
                         </div>
 
                         <!-- Initial Setup -->
@@ -564,8 +570,17 @@
         document.getElementById('approveBtn').addEventListener('click', () => handleDecision('approve'));
         document.getElementById('rejectBtn').addEventListener('click', () => handleDecision('reject'));
         document.getElementById('skipArticleBtn').addEventListener('click', skipArticle);
-        document.getElementById('prevBtn').addEventListener('click', previousArticle);
-        document.getElementById('nextBtn').addEventListener('click', nextArticle);
+        function attachFilterNavigation() {
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            if (prevBtn) prevBtn.addEventListener('click', function(ev) { ev.preventDefault(); previousArticle(); });
+            if (nextBtn) nextBtn.addEventListener('click', function(ev) { ev.preventDefault(); nextArticle(); });
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', attachFilterNavigation);
+        } else {
+            attachFilterNavigation();
+        }
 
         function loadArticles() {
             const iteration = parseInt(document.getElementById('iteration').value);
@@ -575,6 +590,7 @@
             }
 
             currentIteration = iteration;
+            const rater = (document.getElementById('rater') && document.getElementById('rater').value) ? document.getElementById('rater').value.trim() : '';
             
             // Show loading spinner
             document.getElementById('loadingSpinner').style.display = 'block';
@@ -582,7 +598,8 @@
             document.getElementById('articleSection').style.display = 'none';
             document.getElementById('errorAlert').style.display = 'none';
 
-            fetch(`/api/workflow/filter_by_content/articles?iteration=${iteration}`)
+            const articlesUrl = `/api/workflow/filter_by_content/articles?iteration=${iteration}` + (rater ? `&rater=${encodeURIComponent(rater)}` : '');
+            fetch(articlesUrl)
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('loadingSpinner').style.display = 'none';
@@ -597,7 +614,7 @@
                     initialTotalArticles = articles.length;
                     
                     if (articles.length === 0) {
-                        showError('No articles found for this iteration that need content filtering. All articles may have already been processed.');
+                        showError('No articles found for this iteration that need content filtering. All may already be processed, or load again with the same iteration and rater to resume.');
                         document.getElementById('setupSection').style.display = 'block';
                         return;
                     }

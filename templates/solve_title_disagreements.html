@@ -169,6 +169,20 @@
                                     <button type="button" class="btn btn-primary btn-lg" id="mergeAndFindBtn">
                                         <i class="fas fa-code-branch"></i> Merge Databases and Find Disagreements
                                     </button>
+
+                                    <div id="resumeTitleCard" class="card mt-3 border-info" style="display: none;">
+                                        <div class="card-header bg-info text-white py-2">
+                                            <i class="fas fa-play-circle"></i> Resume
+                                        </div>
+                                        <div class="card-body py-2">
+                                            <p class="mb-1 small text-muted">Continue from where you left off (remaining disagreements only).</p>
+                                            <p class="mb-1 small"><strong>Merged DB:</strong> <span id="resumeTitleDbPath" class="text-break"></span></p>
+                                            <p class="mb-2 small"><strong>Iteration:</strong> <span id="resumeTitleIteration"></span></p>
+                                            <button type="button" class="btn btn-sm btn-info" id="resumeTitleBtn">
+                                                <i class="fas fa-sync-alt"></i> Load remaining disagreements
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -351,27 +365,47 @@
             fileInput.click();
         }
 
-        // Handle file selection
+        // Handle file selection: upload file to server (databases/) and set path input to returned path
         function handleFileSelect(fileInput) {
             const inputGroup = fileInput.closest('.db-input-group');
             const pathInput = inputGroup.querySelector('.db-path-input');
-            
-            if (fileInput.files && fileInput.files.length > 0) {
-                const file = fileInput.files[0];
-                // Note: Browsers only provide filename for security reasons
-                // User may need to adjust the path manually if it's not in the current directory
-                pathInput.value = file.name;
-                // Show a note about potential path adjustment
-                if (!pathInput.value.startsWith('/') && !pathInput.value.match(/^[A-Za-z]:/)) {
-                    // Relative path - might need adjustment
-                    const tooltip = document.createElement('div');
-                    tooltip.className = 'form-text text-muted small mt-1';
-                    tooltip.innerHTML = '<i class="fas fa-info-circle"></i> You may need to adjust the path if the file is not in the current directory.';
-                    if (!inputGroup.querySelector('.form-text')) {
-                        inputGroup.appendChild(tooltip);
-                    }
-                }
+            const browseBtn = inputGroup.querySelector('button[onclick*="browseDbFile"]');
+            if (!fileInput.files || fileInput.files.length === 0) return;
+            const file = fileInput.files[0];
+            const originalBtnHtml = browseBtn ? browseBtn.innerHTML : '';
+            if (browseBtn) {
+                browseBtn.disabled = true;
+                browseBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             }
+            pathInput.value = 'Uploading...';
+            const formData = new FormData();
+            formData.append('database_file', file);
+            fetch('/api/database/upload_file', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (browseBtn) {
+                    browseBtn.disabled = false;
+                    browseBtn.innerHTML = originalBtnHtml;
+                }
+                if (data.success) {
+                    pathInput.value = data.db_path;
+                } else {
+                    pathInput.value = '';
+                    alert(data.error || 'Upload failed');
+                }
+            })
+            .catch(err => {
+                if (browseBtn) {
+                    browseBtn.disabled = false;
+                    browseBtn.innerHTML = originalBtnHtml;
+                }
+                pathInput.value = '';
+                alert('Upload failed: ' + err.message);
+            });
+            fileInput.value = '';
         }
 
         // Remove database input
@@ -522,6 +556,10 @@
                 }
 
                 mergedDbPath = mergeData.merged_db_path;
+                try {
+                    localStorage.setItem('solve_title_merged_db_path', mergedDbPath);
+                    localStorage.setItem('solve_title_iteration', String(iteration));
+                } catch (e) {}
                 
                 // Populate target database dropdown with initial database paths
                 const targetDbSelect = document.getElementById('targetDbSelect');
@@ -549,43 +587,7 @@
             .then(response => response.json())
             .then(data => {
                 document.getElementById('loadingSpinner').style.display = 'none';
-
-                if (!data.success) {
-                    showError(data.error || 'Failed to find disagreements');
-                    document.getElementById('setupSection').style.display = 'block';
-                    return;
-                }
-
-                // Check if decisions were auto-applied (single database case)
-                if (data.auto_applied) {
-                    document.getElementById('setupSection').style.display = 'none';
-                    document.getElementById('completionSection').style.display = 'block';
-                    document.getElementById('completionSection').innerHTML = 
-                        `<div class="alert alert-success">
-                            <i class="fas fa-check-circle"></i> <strong>Success!</strong><br>
-                            ${data.message || 'All decisions have been automatically applied.'}<br>
-                            <small class="text-muted">${data.applied_count || 0} article(s) processed.</small>
-                        </div>`;
-                    return;
-                }
-
-                disagreements = data.disagreements || [];
-                initialTotalDisagreements = disagreements.length; // Store initial total
-                
-                if (disagreements.length === 0) {
-                    document.getElementById('completionSection').style.display = 'block';
-                    document.getElementById('completionSection').innerHTML = 
-                        '<i class="fas fa-check-circle"></i> No disagreements found! All raters agreed on all articles.';
-                    return;
-                }
-
-                // Show disagreement section
-                currentDisagreementIndex = 0;
-                currentPosition = 1; // Start at position 1
-                document.getElementById('progressSection').style.display = 'block';
-                document.getElementById('disagreementSection').style.display = 'block';
-                updateProgress();
-                loadCurrentDisagreement();
+                handleFindDisagreementsResponse(data);
             })
             .catch(error => {
                 document.getElementById('loadingSpinner').style.display = 'none';
@@ -593,6 +595,95 @@
                 document.getElementById('setupSection').style.display = 'block';
             });
         }
+
+        function handleFindDisagreementsResponse(data) {
+            if (!data.success) {
+                showError(data.error || 'Failed to find disagreements');
+                document.getElementById('setupSection').style.display = 'block';
+                return;
+            }
+            if (data.auto_applied) {
+                document.getElementById('setupSection').style.display = 'none';
+                document.getElementById('completionSection').style.display = 'block';
+                document.getElementById('completionSection').innerHTML = 
+                    `<div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> <strong>Success!</strong><br>
+                        ${data.message || 'All decisions have been automatically applied.'}<br>
+                        <small class="text-muted">${data.applied_count || 0} article(s) processed.</small>
+                    </div>`;
+                return;
+            }
+            disagreements = data.disagreements || [];
+            initialTotalDisagreements = disagreements.length;
+            if (disagreements.length === 0) {
+                document.getElementById('setupSection').style.display = 'none';
+                document.getElementById('completionSection').style.display = 'block';
+                document.getElementById('completionSection').innerHTML = 
+                    '<i class="fas fa-check-circle"></i> No disagreements found! All raters agreed on all articles.';
+                return;
+            }
+            currentDisagreementIndex = 0;
+            currentPosition = 1;
+            document.getElementById('progressSection').style.display = 'block';
+            document.getElementById('disagreementSection').style.display = 'block';
+            document.getElementById('setupSection').style.display = 'none';
+            updateProgress();
+            loadCurrentDisagreement();
+        }
+
+        function resumeTitleDisagreements() {
+            const savedPath = localStorage.getItem('solve_title_merged_db_path');
+            const savedIter = localStorage.getItem('solve_title_iteration');
+            if (!savedPath || savedIter === null || savedIter === undefined) {
+                showError('No previous session to resume.');
+                return;
+            }
+            const iteration = parseInt(savedIter, 10);
+            if (isNaN(iteration)) {
+                showError('Invalid saved iteration.');
+                return;
+            }
+            mergedDbPath = savedPath;
+            currentIteration = iteration;
+            document.getElementById('loadingSpinner').style.display = 'block';
+            document.getElementById('loadingSpinner').querySelector('p').textContent = 'Loading remaining disagreements...';
+            document.getElementById('setupSection').style.display = 'none';
+            document.getElementById('errorAlert').style.display = 'none';
+            document.getElementById('disagreementSection').style.display = 'none';
+            document.getElementById('completionSection').style.display = 'none';
+            fetch('/api/workflow/solve_title_disagreements/find_disagreements', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ iteration: iteration, merged_db_path: mergedDbPath })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                handleFindDisagreementsResponse(data);
+            })
+            .catch(error => {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                showError('Error loading remaining disagreements: ' + error.message);
+                document.getElementById('setupSection').style.display = 'block';
+            });
+        }
+
+        (function checkResumeTitle() {
+            const savedPath = localStorage.getItem('solve_title_merged_db_path');
+            const savedIter = localStorage.getItem('solve_title_iteration');
+            if (savedPath && savedIter !== null && savedIter !== undefined) {
+                const card = document.getElementById('resumeTitleCard');
+                if (card) {
+                    card.style.display = 'block';
+                    const pathEl = document.getElementById('resumeTitleDbPath');
+                    const iterEl = document.getElementById('resumeTitleIteration');
+                    if (pathEl) pathEl.textContent = savedPath;
+                    if (iterEl) iterEl.textContent = savedIter;
+                }
+            }
+        })();
+        const resumeTitleBtn = document.getElementById('resumeTitleBtn');
+        if (resumeTitleBtn) resumeTitleBtn.addEventListener('click', resumeTitleDisagreements);
 
         function loadCurrentDisagreement() {
             if (currentDisagreementIndex < 0 || currentDisagreementIndex >= disagreements.length) {
@@ -716,24 +807,38 @@
             document.getElementById('totalDisagreements').textContent = total;
         }
 
-        // Navigation
-        document.getElementById('prevDisagreementBtn').addEventListener('click', function() {
-            if (currentDisagreementIndex > 0) {
-                currentDisagreementIndex--;
-                currentPosition--; // Decrement position when going back
-                updateProgress();
-                loadCurrentDisagreement();
+        // Navigation (attach when DOM is ready so buttons are available)
+        function attachDisagreementNavigation() {
+            const prevBtn = document.getElementById('prevDisagreementBtn');
+            const nextBtn = document.getElementById('nextDisagreementBtn');
+            if (prevBtn) {
+                prevBtn.addEventListener('click', function(ev) {
+                    ev.preventDefault();
+                    if (currentDisagreementIndex > 0) {
+                        currentDisagreementIndex--;
+                        currentPosition--;
+                        updateProgress();
+                        loadCurrentDisagreement();
+                    }
+                });
             }
-        });
-
-        document.getElementById('nextDisagreementBtn').addEventListener('click', function() {
-            if (currentDisagreementIndex < disagreements.length - 1) {
-                currentDisagreementIndex++;
-                currentPosition++; // Increment position when going forward
-                updateProgress();
-                loadCurrentDisagreement();
+            if (nextBtn) {
+                nextBtn.addEventListener('click', function(ev) {
+                    ev.preventDefault();
+                    if (currentDisagreementIndex < disagreements.length - 1) {
+                        currentDisagreementIndex++;
+                        currentPosition++;
+                        updateProgress();
+                        loadCurrentDisagreement();
+                    }
+                });
             }
-        });
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', attachDisagreementNavigation);
+        } else {
+            attachDisagreementNavigation();
+        }
 
         // Accept button
         document.getElementById('acceptBtn').addEventListener('click', function() {

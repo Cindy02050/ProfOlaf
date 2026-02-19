@@ -26,13 +26,16 @@ def main(iteration, db_path, rater, llm, model, api_key):
         selected=SelectionStage.METADATA_APPROVED
     )
     if not llm:
+        article_ids = [a.id for a in articles]
+        existing_screening_data = db_manager.get_previous_screening_for_rater(article_ids, iteration, rater)
         choose_elements(
-            articles, 
-            db_manager, 
-            iteration, 
-            rater, 
-            SelectionStage.TITLE_APPROVED, 
-            search_conf.get("annotations", [])
+            articles,
+            existing_screening_data,
+            db_manager,
+            iteration,
+            rater,
+            SelectionStage.TITLE_APPROVED,
+            search_conf.get("annotations", []),
         )
     else:
         screen_papers(
