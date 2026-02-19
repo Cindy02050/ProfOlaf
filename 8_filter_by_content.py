@@ -44,9 +44,7 @@ def main(iteration, db_path, rater, llm, model, api_key, article_folder):
         selected=SelectionStage.TITLE_APPROVED,
     )
     article_ids = [article.id for article in articles]
-    existing_screening_data = db_manager.get_previous_screening_for_rater(article_ids, iteration, rater, phase="content")
-    print(article_ids)
-    print(existing_screening_data)
+    existing_screening_data = db_manager.get_screening_data_for_rater(article_ids, iteration, rater, phase="content")
     if not llm:
         choose_elements(
             articles, 

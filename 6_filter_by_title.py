@@ -27,7 +27,7 @@ def main(iteration, db_path, rater, llm, model, api_key):
     )
     if not llm:
         article_ids = [a.id for a in articles]
-        existing_screening_data = db_manager.get_previous_screening_for_rater(article_ids, iteration, rater)
+        existing_screening_data = db_manager.get_screening_data_for_rater(article_ids, iteration, rater, phase="title")
         choose_elements(
             articles,
             existing_screening_data,

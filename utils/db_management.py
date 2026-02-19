@@ -708,24 +708,29 @@ PRIMARY KEY(id, rater))"
             self.conn.rollback()
             raise ValueError(f"Failed to get screening data for articles: {article_ids}: {e}")
 
-    def get_previous_screening_for_rater(self, article_ids: List[str], iteration: int, rater: str, phase: str = "title") -> List[dict]:
-        """Return all screening rows for the given rater and articles (for pre-filling / editing)."""
+    def get_screening_data_for_rater(
+        self, article_ids: List[str], iteration: int, rater: str, phase: str
+    ) -> List[dict]:
+        """
+        Return screening rows for the given rater and articles that have a decision for the given phase.
+        phase: "title" or "content" – only rows with keep_{phase} set (from that screening stage) are returned.
+        Used to pre-fill / edit when re-running title or content screening.
+        """
         table_name = "screening"
         try:
             if not article_ids:
                 return []
             placeholders = ", ".join("?" for _ in article_ids)
             self.cursor.execute(
-                f"SELECT * FROM {table_name} WHERE id IN ({placeholders}) AND iteration = ? AND rater = ? and keep_{phase} NOT NULL",
+                f"SELECT * FROM {table_name} WHERE id IN ({placeholders}) AND iteration = ? AND rater = ? AND keep_{phase} IS NOT NULL",
                 (*article_ids, iteration, rater)
             )
-            # return as list of dicts
             rows = self.cursor.fetchall()
             column_names = [d[0] for d in self.cursor.description]
             return [dict(zip(column_names, row)) for row in rows]
         except Exception as e:
             self.conn.rollback()
-            raise ValueError(f"Failed to get previous screening for articles: {article_ids}: {e}")
+            raise ValueError(f"Failed to get screening data for rater: {e}")
 
     # -------------------------- Final Annotations Table Methods --------------------------
     def create_annotations_table(self, annotations: List[str]):
