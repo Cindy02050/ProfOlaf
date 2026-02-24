@@ -35,6 +35,12 @@
         .rater-not-selected {
             color: #6c757d;
         }
+        #indexDisagreementsList .index-list-item:hover {
+            background-color: rgba(13, 110, 253, 0.08);
+        }
+        #indexDisagreementsList .index-list-item.current {
+            background-color: rgba(13, 110, 253, 0.12);
+        }
     </style>
 </head>
 <body>
@@ -191,7 +197,12 @@
                         <div id="progressSection" class="mt-4" style="display: none;">
                             <div class="card">
                                 <div class="card-body">
-                                    <h5>Progress</h5>
+                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                        <h5 class="mb-0">Progress</h5>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="indexDisagreementsBtn">
+                                            <i class="fas fa-list"></i> Index
+                                        </button>
+                                    </div>
                                     <div class="progress mb-2" style="height: 30px;">
                                         <div class="progress-bar" role="progressbar" id="progressBar" style="width: 0%">
                                             <span id="progressText">0 / 0</span>
@@ -206,6 +217,10 @@
 
                         <!-- Disagreement Display Section -->
                         <div id="disagreementSection" style="display: none;">
+                            <div class="alert py-2 small d-flex align-items-center gap-2" id="settledBanner" style="display: none;">
+                                <span id="settledBannerIcon"></span>
+                                <span id="settledBannerText"></span>
+                            </div>
                             <div class="card">
                                 <div class="card-header bg-secondary text-white">
                                     <h4 class="mb-0">
@@ -273,6 +288,24 @@
                             <i class="fas fa-exclamation-circle"></i> <span id="errorMessage"></span>
                         </div>
 
+                        <!-- Index modal for disagreements -->
+                        <div class="modal fade" id="indexDisagreementsModal" tabindex="-1">
+                            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"><i class="fas fa-list"></i> Disagreements index</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted small mb-2"><strong>Click an item</strong> to jump to it. <span class="badge bg-success">Accepted</span> <span class="badge bg-danger">Rejected</span> <span class="badge bg-secondary">Not set</span></p>
+                                        <div class="mb-2" style="max-height: 50vh; overflow-y: auto;">
+                                            <ul class="list-group list-group-flush" id="indexDisagreementsList"></ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Confirmation Modal -->
                         <div class="modal fade" id="confirmMergeModal" tabindex="-1" aria-labelledby="confirmMergeModalLabel" aria-hidden="true">
                             <div class="modal-dialog">
@@ -303,23 +336,7 @@
                         <!-- Completion Message -->
                         <div id="completionSection" class="alert alert-success mt-3" style="display: none;">
                             <i class="fas fa-check-circle"></i> All disagreements have been resolved!
-                            
-                            <!-- Merge Results Back Section -->
-                            <div class="mt-3">
-                                <h6><i class="fas fa-download"></i> Merge Results Back to Initial Database</h6>
-                                <p class="mb-2">Select one of the initial databases to merge all resolved decisions back to:</p>
-                                <div class="mb-2">
-                                    <select class="form-select" id="targetDbSelect">
-                                        <option value="">-- Select target database --</option>
-                                    </select>
-                                </div>
-                                <button type="button" class="btn btn-primary" id="mergeResultsBackBtn">
-                                    <i class="fas fa-code-branch"></i> Merge Results Back
-                                </button>
-                                <div class="alert alert-info mt-2 mb-0" id="mergeResultsInfo" style="display: none;">
-                                    <i class="fas fa-info-circle"></i> <span id="mergeResultsMessage"></span>
-                                </div>
-                            </div>
+                            <p class="mb-0 mt-1 small">Use the <strong>Index</strong> button above to review or change any decision.</p>
                         </div>
                     </div>
                 </div>
@@ -556,24 +573,16 @@
                 }
 
                 mergedDbPath = mergeData.merged_db_path;
+                const targetDbPath = mergeData.target_db_path || dbPaths[0];
                 try {
                     localStorage.setItem('solve_title_merged_db_path', mergedDbPath);
+                    localStorage.setItem('solve_title_target_db_path', targetDbPath);
                     localStorage.setItem('solve_title_iteration', String(iteration));
                 } catch (e) {}
-                
-                // Populate target database dropdown with initial database paths
-                const targetDbSelect = document.getElementById('targetDbSelect');
-                targetDbSelect.innerHTML = '<option value="">-- Select target database --</option>';
-                dbPaths.forEach((dbPath, index) => {
-                    const option = document.createElement('option');
-                    option.value = dbPath;
-                    option.textContent = dbPath.split(/[/\\]/).pop() + ` (${dbPath})`;
-                    targetDbSelect.appendChild(option);
-                });
 
-                // Now find disagreements from merged database
-                document.getElementById('loadingSpinner').querySelector('p').textContent = 'Finding disagreements...';
-                return fetch('/api/workflow/solve_title_disagreements/find_disagreements', {
+                // Get all disagreements (settled + unsettled) so we can show index and start at first unsettled
+                document.getElementById('loadingSpinner').querySelector('p').textContent = 'Loading disagreements...';
+                return fetch('/api/workflow/solve_title_disagreements/get_all_disagreements', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -587,7 +596,7 @@
             .then(response => response.json())
             .then(data => {
                 document.getElementById('loadingSpinner').style.display = 'none';
-                handleFindDisagreementsResponse(data);
+                handleGetAllDisagreementsResponse(data);
             })
             .catch(error => {
                 document.getElementById('loadingSpinner').style.display = 'none';
@@ -602,17 +611,6 @@
                 document.getElementById('setupSection').style.display = 'block';
                 return;
             }
-            if (data.auto_applied) {
-                document.getElementById('setupSection').style.display = 'none';
-                document.getElementById('completionSection').style.display = 'block';
-                document.getElementById('completionSection').innerHTML = 
-                    `<div class="alert alert-success">
-                        <i class="fas fa-check-circle"></i> <strong>Success!</strong><br>
-                        ${data.message || 'All decisions have been automatically applied.'}<br>
-                        <small class="text-muted">${data.applied_count || 0} article(s) processed.</small>
-                    </div>`;
-                return;
-            }
             disagreements = data.disagreements || [];
             initialTotalDisagreements = disagreements.length;
             if (disagreements.length === 0) {
@@ -624,6 +622,31 @@
             }
             currentDisagreementIndex = 0;
             currentPosition = 1;
+            document.getElementById('progressSection').style.display = 'block';
+            document.getElementById('disagreementSection').style.display = 'block';
+            document.getElementById('setupSection').style.display = 'none';
+            updateProgress();
+            loadCurrentDisagreement();
+        }
+
+        function handleGetAllDisagreementsResponse(data) {
+            if (!data.success) {
+                showError(data.error || 'Failed to load disagreements');
+                document.getElementById('setupSection').style.display = 'block';
+                return;
+            }
+            disagreements = data.disagreements || [];
+            initialTotalDisagreements = disagreements.length;
+            if (disagreements.length === 0) {
+                document.getElementById('setupSection').style.display = 'none';
+                document.getElementById('completionSection').style.display = 'block';
+                document.getElementById('completionSection').innerHTML = 
+                    '<i class="fas fa-check-circle"></i> No disagreements found! All raters agreed on all articles.';
+                return;
+            }
+            const startIndex = typeof data.start_index === 'number' ? data.start_index : 0;
+            currentDisagreementIndex = Math.max(0, Math.min(startIndex, disagreements.length - 1));
+            currentPosition = currentDisagreementIndex + 1;
             document.getElementById('progressSection').style.display = 'block';
             document.getElementById('disagreementSection').style.display = 'block';
             document.getElementById('setupSection').style.display = 'none';
@@ -651,7 +674,7 @@
             document.getElementById('errorAlert').style.display = 'none';
             document.getElementById('disagreementSection').style.display = 'none';
             document.getElementById('completionSection').style.display = 'none';
-            fetch('/api/workflow/solve_title_disagreements/find_disagreements', {
+            fetch('/api/workflow/solve_title_disagreements/get_all_disagreements', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ iteration: iteration, merged_db_path: mergedDbPath })
@@ -659,7 +682,7 @@
             .then(response => response.json())
             .then(data => {
                 document.getElementById('loadingSpinner').style.display = 'none';
-                handleFindDisagreementsResponse(data);
+                handleGetAllDisagreementsResponse(data);
             })
             .catch(error => {
                 document.getElementById('loadingSpinner').style.display = 'none';
@@ -689,6 +712,8 @@
             if (currentDisagreementIndex < 0 || currentDisagreementIndex >= disagreements.length) {
                 return;
             }
+            document.getElementById('disagreementSection').style.display = 'block';
+            document.getElementById('completionSection').style.display = 'none';
 
             const disagreement = disagreements[currentDisagreementIndex];
 
@@ -788,6 +813,30 @@
             }
             reasoningsContainer.innerHTML = html;
 
+            // Settled banner: always derive from current index so it never shows stale state after nav
+            const current = disagreements[currentDisagreementIndex];
+            const isSettled = current && current.settled && current.final_decision;
+            const banner = document.getElementById('settledBanner');
+            const bannerIcon = document.getElementById('settledBannerIcon');
+            const bannerText = document.getElementById('settledBannerText');
+            if (banner) {
+                if (isSettled && current.final_decision === 'accept') {
+                    banner.style.display = 'flex';
+                    if (bannerText) bannerText.textContent = 'Previously settled: Accepted';
+                    if (bannerIcon) bannerIcon.innerHTML = '<i class="fas fa-check-circle"></i>';
+                    banner.className = 'alert alert-success py-2 small d-flex align-items-center gap-2';
+                } else if (isSettled && current.final_decision === 'reject') {
+                    banner.style.display = 'flex';
+                    if (bannerText) bannerText.textContent = 'Previously settled: Rejected';
+                    if (bannerIcon) bannerIcon.innerHTML = '<i class="fas fa-times-circle"></i>';
+                    banner.className = 'alert alert-danger py-2 small d-flex align-items-center gap-2';
+                } else {
+                    banner.style.display = 'none';
+                    if (bannerText) bannerText.textContent = '';
+                    if (bannerIcon) bannerIcon.innerHTML = '';
+                }
+            }
+
             // Update navigation buttons
             document.getElementById('prevDisagreementBtn').disabled = currentDisagreementIndex === 0;
             document.getElementById('nextDisagreementBtn').disabled = currentDisagreementIndex >= disagreements.length - 1;
@@ -797,8 +846,8 @@
         }
 
         function updateProgress() {
-            const total = initialTotalDisagreements; // Use initial total, not current array length
-            const current = currentPosition; // Use tracked position, not array index
+            const total = initialTotalDisagreements;
+            const current = currentPosition;
             const percent = total > 0 ? (current / total) * 100 : 0;
 
             document.getElementById('progressBar').style.width = percent + '%';
@@ -806,6 +855,46 @@
             document.getElementById('currentDisagreementIndex').textContent = current;
             document.getElementById('totalDisagreements').textContent = total;
         }
+
+        function getDisagreementStatusBadge(d) {
+            if (d.settled && d.final_decision === 'accept') return '<span class="badge bg-success">Accepted</span>';
+            if (d.settled && d.final_decision === 'reject') return '<span class="badge bg-danger">Rejected</span>';
+            return '<span class="badge bg-secondary">Not set</span>';
+        }
+
+        function openIndexModal() {
+            const ul = document.getElementById('indexDisagreementsList');
+            if (!ul) return;
+            ul.innerHTML = '';
+            disagreements.forEach(function(d, idx) {
+                const title = (d.title || '').substring(0, 50) + ((d.title || '').length > 50 ? '…' : '');
+                const current = idx === currentDisagreementIndex;
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-start index-list-item' + (current ? ' current' : '');
+                li.style.cursor = 'pointer';
+                li.dataset.index = idx;
+                li.innerHTML = '<span class="d-flex align-items-center gap-2 flex-wrap">' +
+                    '<span class="text-muted">' + (idx + 1) + '/' + disagreements.length + '</span> ' +
+                    getDisagreementStatusBadge(d) + ' ' + title +
+                    (current ? ' <span class="badge bg-primary">current</span>' : '') + '</span>';
+                li.addEventListener('click', function() {
+                    const i = parseInt(this.dataset.index, 10);
+                    currentDisagreementIndex = i;
+                    currentPosition = i + 1;
+                    updateProgress();
+                    loadCurrentDisagreement();
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('indexDisagreementsModal')).hide();
+                });
+                ul.appendChild(li);
+            });
+            new bootstrap.Modal(document.getElementById('indexDisagreementsModal')).show();
+            requestAnimationFrame(function() {
+                const currentLi = ul.querySelector('.index-list-item.current');
+                if (currentLi) currentLi.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            });
+        }
+
+        document.getElementById('indexDisagreementsBtn').addEventListener('click', openIndexModal);
 
         // Navigation (attach when DOM is ready so buttons are available)
         function attachDisagreementNavigation() {
@@ -878,30 +967,22 @@
                     return;
                 }
 
-                // Show success message
+                // Update current item in place (so index/prev/next still work and user can change later)
+                disagreement.settled = true;
+                disagreement.final_decision = decision;
+
                 document.getElementById('saveMessage').textContent = `Decision saved: Article ${decision === 'accept' ? 'accepted' : 'rejected'}`;
                 document.getElementById('saveAlert').style.display = 'block';
 
-                // Remove disagreement from list
-                disagreements.splice(currentDisagreementIndex, 1);
-                // We've processed the current item, so we've moved forward in the original list
-                // The next item we'll view is at the next position
+                // Move to next item (or show completion if that was the last)
+                currentDisagreementIndex++;
+                currentPosition = currentDisagreementIndex + 1;
 
-                // Adjust index if needed (if we were at the end, move back)
-                if (currentDisagreementIndex >= disagreements.length && disagreements.length > 0) {
-                    currentDisagreementIndex = disagreements.length - 1;
-                    // If we moved back, position stays the same (we're viewing the previous item)
-                } else {
-                    // We're viewing the next item, which is now at the same index but is the next position
-                    currentPosition++;
-                }
-
-                // Move to next or finish
-                if (disagreements.length > 0) {
+                if (currentDisagreementIndex < disagreements.length) {
                     updateProgress();
                     loadCurrentDisagreement();
                 } else {
-                    // All disagreements resolved
+                    // Reached end of list - show completion (Index and Previous still available to review)
                     document.getElementById('disagreementSection').style.display = 'none';
                     document.getElementById('completionSection').style.display = 'block';
                 }
@@ -945,65 +1026,6 @@
 
         // Initialize remove buttons state
         updateRemoveButtons();
-        
-        // Merge results back button handler
-        document.getElementById('mergeResultsBackBtn').addEventListener('click', function() {
-            const targetDbPath = document.getElementById('targetDbSelect').value;
-            if (!targetDbPath) {
-                alert('Please select a target database');
-                return;
-            }
-            
-            if (!mergedDbPath) {
-                alert('No merged database path available');
-                return;
-            }
-            
-            if (!currentIteration) {
-                alert('No iteration specified');
-                return;
-            }
-            
-            // Disable button
-            const btn = document.getElementById('mergeResultsBackBtn');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Merging...';
-            
-            fetch('/api/workflow/solve_title_disagreements/merge_results_back', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    merged_db_path: mergedDbPath,
-                    target_db_path: targetDbPath,
-                    iteration: currentIteration
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (!data.success) {
-                    alert('Error: ' + (data.error || 'Failed to merge results back'));
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-code-branch"></i> Merge Results Back';
-                    return;
-                }
-                
-                // Show success message
-                document.getElementById('mergeResultsMessage').textContent = data.message;
-                document.getElementById('mergeResultsInfo').classList.remove('alert-danger');
-                document.getElementById('mergeResultsInfo').classList.add('alert-success');
-                document.getElementById('mergeResultsInfo').style.display = 'block';
-                
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-check"></i> Merged Successfully';
-            })
-            .catch(error => {
-                alert('Error: ' + error.message);
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-code-branch"></i> Merge Results Back';
-            });
-        });
     </script>
 </body>
 </html>

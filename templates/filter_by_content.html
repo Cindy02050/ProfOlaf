@@ -63,6 +63,19 @@
         .decision-buttons {
             margin-top: 1.5rem;
         }
+        #indexList .index-list-item {
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+        #indexList .index-list-item:hover {
+            background-color: rgba(13, 110, 253, 0.08);
+        }
+        #indexList .index-list-item.current {
+            background-color: rgba(13, 110, 253, 0.12);
+        }
+        #indexList .index-list-item.hidden-by-filter {
+            display: none !important;
+        }
         .article-actions {
             padding-top: 1.5rem;
             border-top: 1px solid #dee2e6;
@@ -356,10 +369,23 @@
 
                         <!-- Article Display Section -->
                         <div id="articleSection" style="display: none;">
-                            <div class="progress-indicator" id="progressIndicator">
-                                Article <span id="currentIndex">0</span> of <span id="totalArticles">0</span>
+                            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                                <div class="progress-indicator" id="progressIndicator">
+                                    Article <span id="currentIndex">0</span> of <span id="totalArticles">0</span>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" id="indexBtn">
+                                        <i class="fas fa-list"></i> Index
+                                    </button>
+                                    <a href="{{ url_for('workflow_stage') }}" class="btn btn-success btn-sm" id="finishScreeningBtn">
+                                        <i class="fas fa-check-double"></i> Finish content screening
+                                    </a>
+                                </div>
                             </div>
-
+                            <div class="alert py-2 small d-flex align-items-center gap-2" id="previousDecisionBanner" style="display: none;">
+                                <span id="previousDecisionIcon"></span>
+                                <span id="previousDecisionText"></span>
+                            </div>
                             <div class="card article-card" id="articleCard">
                                 <div class="card-body">
                                     <div class="article-content">
@@ -427,10 +453,13 @@
                                             </button>
                                         </div>
 
-                                        <div class="d-flex justify-content-between mt-3">
+                                        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
                                             <button type="button" class="btn btn-outline-primary" id="prevBtn" disabled>
                                                 <i class="fas fa-chevron-left"></i> Previous
                                             </button>
+                                            <a href="{{ url_for('workflow_stage') }}" class="btn btn-success">
+                                                <i class="fas fa-check-double"></i> Finish content screening
+                                            </a>
                                             <button type="button" class="btn btn-outline-primary" id="nextBtn">
                                                 Next <i class="fas fa-chevron-right"></i>
                                             </button>
@@ -441,6 +470,24 @@
 
                             <div class="alert alert-success mt-3" id="saveAlert" style="display: none;">
                                 <i class="fas fa-check-circle"></i> <span id="saveMessage"></span>
+                            </div>
+
+                            <!-- Shown when last article is completed: Finish + Index only -->
+                            <div id="screeningCompleteSection" style="display: none;" class="mt-4">
+                                <div class="card border-success">
+                                    <div class="card-body text-center py-4">
+                                        <p class="lead mb-3"><i class="fas fa-check-circle text-success"></i> You've completed screening all articles for this iteration.</p>
+                                        <p class="text-muted mb-4">Use <strong>Index</strong> to review results, or <strong>Finish content screening</strong> to return to the workflow.</p>
+                                        <div class="d-flex justify-content-center gap-3 flex-wrap">
+                                            <button type="button" class="btn btn-outline-secondary btn-lg" id="indexBtnFromComplete">
+                                                <i class="fas fa-list"></i> Index
+                                            </button>
+                                            <a href="{{ url_for('workflow_stage') }}" class="btn btn-success btn-lg">
+                                                <i class="fas fa-check-double"></i> Finish content screening
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -487,6 +534,36 @@
                         <div class="alert alert-danger mt-3" id="errorAlert" style="display: none;">
                             <i class="fas fa-exclamation-circle"></i> <span id="errorMessage"></span>
                         </div>
+                        <!-- Index modal: click-to-jump navigation -->
+                        <div class="modal fade" id="indexModal" tabindex="-1">
+                            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"><i class="fas fa-list"></i> Article index</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted small mb-2"><strong>Click an article</strong> to jump to it. Legend: <span class="badge bg-success">Approved</span> <span class="badge bg-danger">Rejected</span> <span class="badge bg-secondary">Not set</span></p>
+                                        <div class="mb-2">
+                                            <input type="text" class="form-control form-control-sm" id="indexFilterInput" placeholder="Filter by title…" autocomplete="off">
+                                        </div>
+                                        <div class="index-list-container mb-2" style="max-height: 50vh; overflow-y: auto;">
+                                            <ul class="list-group list-group-flush" id="indexList"></ul>
+                                            <p class="text-muted small mt-2 mb-0" id="indexFilterNoMatch" style="display: none;">No articles match the filter.</p>
+                                        </div>
+                                        <div class="d-flex flex-wrap gap-2 align-items-center mt-2 pt-2 border-top">
+                                            <span class="text-muted small">Quick jump:</span>
+                                            <div class="btn-group btn-group-sm" id="indexRangeBtns"></div>
+                                            <div class="ms-auto input-group input-group-sm" style="max-width: 10rem;">
+                                                <span class="input-group-text">#</span>
+                                                <input type="number" class="form-control form-control-sm" id="indexJumpInput" min="1" placeholder="1" aria-label="Article number">
+                                                <button class="btn btn-outline-primary btn-sm" type="button" id="indexJumpBtn">Go</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -497,7 +574,8 @@
     <script>
         let articles = [];
         let currentArticleIndex = 0;
-        let initialTotalArticles = 0; // Keep fixed so "Article i of N" stays correct when list shrinks
+        let currentPosition = 1;
+        let initialTotalArticles = 0;
         let currentIteration = null;
         const annotationFields = {{ annotations | tojson }};
         let currentAnnotations = {};
@@ -612,14 +690,14 @@
 
                     articles = data.articles || [];
                     initialTotalArticles = articles.length;
-                    
                     if (articles.length === 0) {
-                        showError('No articles found for this iteration that need content filtering. All may already be processed, or load again with the same iteration and rater to resume.');
+                        showError('No articles found for this iteration that need content filtering.');
                         document.getElementById('setupSection').style.display = 'block';
                         return;
                     }
-
-                    currentArticleIndex = 0;
+                    let startIdx = typeof data.start_index === 'number' ? data.start_index : 0;
+                    currentArticleIndex = Math.max(0, Math.min(startIdx, articles.length - 1));
+                    currentPosition = currentArticleIndex + 1;
                     displayArticle();
                     document.getElementById('articleSection').style.display = 'block';
                 })
@@ -630,7 +708,33 @@
                 });
         }
 
+        function showScreeningComplete() {
+            const progressEl = document.getElementById('progressIndicator');
+            const bannerEl = document.getElementById('previousDecisionBanner');
+            const cardEl = document.getElementById('articleCard');
+            const saveEl = document.getElementById('saveAlert');
+            const indexBtnEl = document.getElementById('indexBtn');
+            const finishBtnEl = document.getElementById('finishScreeningBtn');
+            if (progressEl) progressEl.style.display = 'none';
+            if (bannerEl) bannerEl.style.display = 'none';
+            if (cardEl) cardEl.style.display = 'none';
+            if (saveEl) saveEl.style.display = 'none';
+            if (indexBtnEl) indexBtnEl.style.display = 'none';
+            if (finishBtnEl) finishBtnEl.style.display = 'none';
+            const completeEl = document.getElementById('screeningCompleteSection');
+            if (completeEl) completeEl.style.display = 'block';
+        }
+
         function displayArticle() {
+            document.getElementById('screeningCompleteSection').style.display = 'none';
+            const progressEl = document.getElementById('progressIndicator');
+            const cardEl = document.getElementById('articleCard');
+            const indexBtnEl = document.getElementById('indexBtn');
+            const finishBtnEl = document.getElementById('finishScreeningBtn');
+            if (progressEl) progressEl.style.display = '';
+            if (cardEl) cardEl.style.display = '';
+            if (indexBtnEl) indexBtnEl.style.display = '';
+            if (finishBtnEl) finishBtnEl.style.display = '';
             if (articles.length === 0 || currentArticleIndex < 0 || currentArticleIndex >= articles.length) {
                 console.error('Cannot display article: invalid index or no articles');
                 return;
@@ -638,12 +742,10 @@
 
             const article = articles[currentArticleIndex];
             
-            // Update progress indicator (position in original list, total never shrinks)
             const currentIndexEl = document.getElementById('currentIndex');
             const totalArticlesEl = document.getElementById('totalArticles');
-            const currentPosition = initialTotalArticles - articles.length + currentArticleIndex + 1;
             if (currentIndexEl) currentIndexEl.textContent = currentPosition;
-            if (totalArticlesEl) totalArticlesEl.textContent = initialTotalArticles;
+            if (totalArticlesEl) totalArticlesEl.textContent = articles.length;
 
             // Display article information (exact same pattern as Step 5)
             const titleEl = document.getElementById('articleTitle');
@@ -795,11 +897,24 @@
                 articleInfoEl.style.visibility = 'visible';
             }
             
-            // Clear and set reason input
-            document.getElementById('reasonInput').value = article.content_reason || '';
-            
-            // Load annotations if they exist
-            currentAnnotations = article.annotations || {};
+            // Derive decision from the current article only (normalize so banner always reflects this article)
+            const currentDecision = (function(a) {
+                const d = a._savedDecision ?? a.previous_decision;
+                if (d === 'approve') return 'approve';
+                if (d === 'reject') return 'reject';
+                return 'none';
+            })(articles[currentArticleIndex]);
+            const banner = document.getElementById('previousDecisionBanner');
+            const bannerText = document.getElementById('previousDecisionText');
+            const bannerIcon = document.getElementById('previousDecisionIcon');
+            if (banner) {
+                banner.style.display = 'block';
+                if (bannerText) bannerText.textContent = currentDecision === 'approve' ? 'Previously screened: Approved' : currentDecision === 'reject' ? 'Previously screened: Rejected' : 'Not yet screened';
+                if (bannerIcon) bannerIcon.innerHTML = currentDecision === 'approve' ? '<i class="fas fa-check-circle"></i>' : currentDecision === 'reject' ? '<i class="fas fa-times-circle"></i>' : '<i class="fas fa-minus-circle"></i>';
+                banner.className = currentDecision === 'approve' ? 'alert alert-success py-2 small d-flex align-items-center gap-2' : currentDecision === 'reject' ? 'alert alert-danger py-2 small d-flex align-items-center gap-2' : 'alert alert-secondary py-2 small d-flex align-items-center gap-2';
+            }
+            document.getElementById('reasonInput').value = article._savedReason != null ? article._savedReason : (article.content_reason || '');
+            currentAnnotations = article._savedAnnotations != null ? article._savedAnnotations : (article.annotations || {});
             updateAnnotationsFields();
             
             // Update navigation buttons
@@ -927,31 +1042,20 @@
                     return;
                 }
 
-                // Show success message
-                const decisionText = decision === 'approve' ? 'approved' : 'rejected';
-                document.getElementById('saveMessage').textContent = `Article ${decisionText} successfully!`;
-                document.getElementById('saveAlert').classList.remove('alert-danger');
-                document.getElementById('saveAlert').classList.add('alert-success');
-                document.getElementById('saveAlert').style.display = 'block';
-
-                // Remove article from list (it's been processed)
-                articles.splice(currentArticleIndex, 1);
-
-                // Adjust index if needed
-                if (currentArticleIndex >= articles.length && articles.length > 0) {
-                    currentArticleIndex = articles.length - 1;
-                }
-
-                // Move to next article or finish
-                if (articles.length > 0) {
-                    if (currentArticleIndex >= articles.length) {
-                        currentArticleIndex = articles.length - 1;
-                    }
+                article._savedDecision = decision;
+                article._savedReason = reason;
+                article._savedAnnotations = annotationsData;
+                if (currentArticleIndex < articles.length - 1) {
+                    const decisionText = decision === 'approve' ? 'approved' : 'rejected';
+                    document.getElementById('saveMessage').textContent = `Article ${decisionText} successfully!`;
+                    document.getElementById('saveAlert').classList.remove('alert-danger');
+                    document.getElementById('saveAlert').classList.add('alert-success');
+                    document.getElementById('saveAlert').style.display = 'block';
+                    currentArticleIndex++;
+                    currentPosition++;
                     displayArticle();
                 } else {
-                    // All articles processed
-                    document.getElementById('articleSection').style.display = 'none';
-                    showSuccess('All articles have been processed!');
+                    showScreeningComplete();
                 }
             })
             .catch(error => {
@@ -970,6 +1074,7 @@
         function previousArticle() {
             if (currentArticleIndex > 0) {
                 currentArticleIndex--;
+                currentPosition--;
                 displayArticle();
             }
         }
@@ -977,9 +1082,125 @@
         function nextArticle() {
             if (currentArticleIndex < articles.length - 1) {
                 currentArticleIndex++;
+                currentPosition++;
                 displayArticle();
             }
         }
+
+        function getArticleDecision(article) {
+            const d = article._savedDecision || article.previous_decision;
+            if (d === 'approve') return 'approve';
+            if (d === 'reject') return 'reject';
+            return 'none';
+        }
+        function getArticleDecisionBadge(article) {
+            const d = getArticleDecision(article);
+            if (d === 'approve') return '<span class="badge bg-success">Approved</span>';
+            if (d === 'reject') return '<span class="badge bg-danger">Rejected</span>';
+            return '<span class="badge bg-secondary">Not set</span>';
+        }
+
+        function openIndexModal() {
+            const ul = document.getElementById('indexList');
+            if (!ul) return;
+            const filterInput = document.getElementById('indexFilterInput');
+            const noMatchEl = document.getElementById('indexFilterNoMatch');
+            const rangeBtns = document.getElementById('indexRangeBtns');
+            ul.innerHTML = '';
+            if (filterInput) filterInput.value = '';
+            if (noMatchEl) noMatchEl.style.display = 'none';
+
+            articles.forEach(function(a, idx) {
+                const badge = getArticleDecisionBadge(a);
+                const fullTitle = (a.title || '');
+                const title = fullTitle.substring(0, 60) + (fullTitle.length > 60 ? '…' : '');
+                const current = idx === currentArticleIndex;
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-start index-list-item' + (current ? ' current' : '');
+                li.dataset.index = idx;
+                li.dataset.title = (fullTitle || '').toLowerCase();
+                li.innerHTML = '<span class="d-flex align-items-center gap-2 flex-wrap">' + '<span class="text-muted">' + (idx + 1) + '/' + articles.length + '</span> ' + badge + ' ' + title + (current ? ' <span class="badge bg-primary">current</span>' : '') + '</span>';
+                li.addEventListener('click', function() {
+                    const i = parseInt(this.dataset.index, 10);
+                    currentArticleIndex = i;
+                    currentPosition = i + 1;
+                    displayArticle();
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('indexModal')).hide();
+                });
+                ul.appendChild(li);
+            });
+
+            if (rangeBtns) {
+                rangeBtns.innerHTML = '';
+                const chunk = Math.max(25, Math.ceil(articles.length / 10));
+                for (let start = 0; start < articles.length; start += chunk) {
+                    const end = Math.min(start + chunk, articles.length);
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-outline-secondary';
+                    btn.textContent = (start + 1) + '–' + end;
+                    btn.addEventListener('click', function() {
+                        const firstInRange = document.querySelector('#indexList .index-list-item[data-index="' + start + '"]');
+                        if (firstInRange && !firstInRange.classList.contains('hidden-by-filter')) {
+                            firstInRange.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                        }
+                    });
+                    rangeBtns.appendChild(btn);
+                }
+            }
+
+            const jumpInput = document.getElementById('indexJumpInput');
+            if (jumpInput) {
+                jumpInput.value = '';
+                jumpInput.placeholder = '1–' + articles.length;
+                jumpInput.max = articles.length;
+            }
+            new bootstrap.Modal(document.getElementById('indexModal')).show();
+
+            requestAnimationFrame(function() {
+                const currentLi = ul.querySelector('.index-list-item.current');
+                if (currentLi) currentLi.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            });
+        }
+
+        function applyIndexFilter() {
+            const filterInput = document.getElementById('indexFilterInput');
+            const noMatchEl = document.getElementById('indexFilterNoMatch');
+            if (!filterInput || !noMatchEl) return;
+            const q = (filterInput.value || '').trim().toLowerCase();
+            let visible = 0;
+            document.querySelectorAll('#indexList .index-list-item').forEach(function(li) {
+                const match = !q || (li.dataset.title || '').indexOf(q) !== -1;
+                li.classList.toggle('hidden-by-filter', !match);
+                if (match) visible++;
+            });
+            noMatchEl.style.display = visible === 0 ? 'block' : 'none';
+        }
+
+        document.getElementById('indexBtn').addEventListener('click', openIndexModal);
+        const indexBtnFromComplete = document.getElementById('indexBtnFromComplete');
+        if (indexBtnFromComplete) indexBtnFromComplete.addEventListener('click', openIndexModal);
+
+        const indexFilterInput = document.getElementById('indexFilterInput');
+        if (indexFilterInput) {
+            indexFilterInput.addEventListener('input', applyIndexFilter);
+            indexFilterInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') { this.value = ''; applyIndexFilter(); }
+            });
+        }
+
+        document.getElementById('indexJumpBtn').addEventListener('click', function() {
+            const n = parseInt(document.getElementById('indexJumpInput').value, 10);
+            if (n >= 1 && n <= articles.length) {
+                currentArticleIndex = n - 1;
+                currentPosition = n;
+                displayArticle();
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('indexModal')).hide();
+            }
+        });
+        document.getElementById('indexJumpInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') document.getElementById('indexJumpBtn').click();
+        });
 
         function showError(message) {
             document.getElementById('errorMessage').textContent = message;

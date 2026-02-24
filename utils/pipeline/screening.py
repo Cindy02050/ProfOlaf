@@ -5,12 +5,21 @@ from utils.cli.pretty_print_utils import (
     prompt_input
 )
 from prompt_toolkit import Application
-from prompt_toolkit.layout import Layout, HSplit
+from prompt_toolkit.layout import Layout, HSplit, Window, ScrollablePane
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import TextArea, Button, Label
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.filters import has_focus
+
+# Styles for screening index (colored y/n/-, current article)
+_STYLE_GREEN = "fg:green"
+_STYLE_RED = "fg:red"
+_STYLE_PURPLE = "bold purple"
+_STYLE_DIM = "dim"
 
 from ..db_management import SelectionStage, ArticleData
-from typing import List, Optional
+from typing import List, Optional, Any
 
 # ================================ Manual Screening ================================
 
@@ -162,14 +171,15 @@ def process_article(
         pretty_print(f"Skipping Article {title_string}")
         return None, None
 
-    article_info_string = f"Title: {title_string}\n"
+    article_info_string = ""
+    if previous_data:
+        prev_keep = "Keep" if previous_data.get("keep") else "Reject"
+        prev_reason = (previous_data.get("reason") or "").strip() or "(none)"
+        color = "green" if previous_data.get("keep") else "red"
+        article_info_string += format_color_string(f"\nCurrent Decision: {prev_keep} Reason: {prev_reason}\n", color, "")
+    article_info_string += f"Title: {title_string}\n"
     article_info_string += f"ID: {article.id}\n"
     article_info_string += f"Url: {article.pub_url}\n" if selection_stage == SelectionStage.CONTENT_APPROVED else ""
-
-    if previous_data:
-        prev_keep = "y" if previous_data.get("keep") else "n"
-        prev_reason = (previous_data.get("reason") or "").strip() or "(none)"
-        article_info_string += format_color_string(f"\n[Previously screened] Keep: {prev_keep}  Reason: {prev_reason}\n", "cyan", "")
 
     # Default keep/reason from previous screening (so they show as pre-filled and Enter keeps them)
     default_keep = None
@@ -303,29 +313,39 @@ def _show_index_and_jump(
     screening_phase: str,
     current_i: int,
 ) -> int:
-    """Show scrollable index (position, title, decision) and prompt to jump. Returns index to go to (0-based)."""
+    """Show scrollable index (position, colored y/n/-, title). Current article in purple. Returns index to go to (0-based)."""
     max_title_len = 70
     n_articles = len(articles)
-    lines = ["--- Index ---", ""]
+    # Header row
+    header_fragments: List[tuple] = [("", "--- Index ---  [y]=keep [n]=reject [-]=pending  (↑/↓ scroll, Tab: list↔input, Enter on row or type number+Enter to go)\n\n")]
+    header_control = FormattedTextControl(text=header_fragments, focusable=True)
+    header_window = Window(content=header_control, wrap_lines=False)
+
+    # One focusable row per article so arrow keys move focus and pane scrolls to follow
+    item_windows: List[Any] = []
     for idx, a in enumerate(articles):
         title = (a.title or "").strip()
         if len(title) > max_title_len:
             title = title[: max_title_len - 1] + "…"
         dec = _decision_for_article(a.id, existing_screening_data, current_run_data, screening_phase)
-        marker = " ←" if idx == current_i else ""
-        lines.append(f"  {idx + 1:3d}/{n_articles}  [{dec}]  {title}{marker}")
-    index_text = "\n".join(lines)
+        if dec == "y":
+            box_style, box_text = _STYLE_GREEN, "[y]"
+        elif dec == "n":
+            box_style, box_text = _STYLE_RED, "[n]"
+        else:
+            box_style, box_text = _STYLE_DIM, "[-]"
+        title_style = _STYLE_PURPLE if idx == current_i else ""
+        row_fragments: List[tuple] = [
+            ("", f"  {idx + 1:3d}/{n_articles}  "),
+            (box_style, box_text),
+            (title_style, f"  {title}\n"),
+        ]
+        row_control = FormattedTextControl(text=row_fragments, focusable=True)
+        item_windows.append(Window(content=row_control, wrap_lines=False))
 
-    # Scrollable list (read-only) + input at bottom; keep height small so it fits small terminals
-    list_height = min(8, max(4, n_articles + 2))
-    list_area = TextArea(
-        text=index_text,
-        read_only=True,
-        scrollbar=True,
-        multiline=True,
-        focusable=True,
-        height=list_height,
-    )
+    list_height = min(12, max(6, n_articles + 2))
+    inner = HSplit([header_window] + item_windows)
+    list_area = ScrollablePane(inner, height=list_height)
     go_to_prompt = f"Go to article (1-{n_articles}) or Enter to return: "
     input_area = TextArea(
         prompt=go_to_prompt,
@@ -340,27 +360,53 @@ def _show_index_and_jump(
     def _(event):
         event.app.exit(result=current_i)
 
-    @kb.add("enter")
-    def _(event):
-        if event.app.layout.current_control == input_area:
-            raw = input_area.text.strip()
-            if not raw:
-                event.app.exit(result=current_i)
-                return
-            try:
-                num = int(raw)
-                if 1 <= num <= n_articles:
-                    event.app.exit(result=num - 1)
-            except ValueError:
-                pass
+    @kb.add("enter", filter=has_focus(input_area))
+    def _enter_in_input(event):
+        raw = input_area.text.strip()
+        if not raw:
+            event.app.exit(result=current_i)
+            return
+        try:
+            num = int(raw)
+            if 1 <= num <= n_articles:
+                event.app.exit(result=num - 1)
+        except ValueError:
+            pass
 
-    @kb.add("tab")
-    def _(event):
+    # Enter on a list row: go to that article; Enter on header: return without changing
+    def _make_enter_handler(go_to_index: int):
+        def _handler(event: Any) -> None:
+            event.app.exit(result=go_to_index)
+        return _handler
+
+    kb.add("enter", filter=has_focus(header_window))(lambda e: e.app.exit(result=current_i))
+    for idx, win in enumerate(item_windows):
+        kb.add("enter", filter=has_focus(win))(_make_enter_handler(idx))
+
+    @kb.add(Keys.Up)
+    def _up(event: Any) -> None:
+        event.app.layout.focus_previous()
+
+    @kb.add(Keys.Down)
+    def _down(event: Any) -> None:
         event.app.layout.focus_next()
 
+    # Tab only toggles between list (visualization, scroll with ↑/↓) and input (type number + Enter to go)
+    input_has_focus = has_focus(input_area)
+
+    @kb.add("tab")
+    def _tab(event: Any) -> None:
+        if input_has_focus():
+            event.app.layout.focus(item_windows[current_i] if n_articles else input_area)
+        else:
+            event.app.layout.focus(input_area)
+
     @kb.add("s-tab")
-    def _(event):
-        event.app.layout.focus_previous()
+    def _stab(event: Any) -> None:
+        if input_has_focus():
+            event.app.layout.focus(item_windows[current_i] if n_articles else input_area)
+        else:
+            event.app.layout.focus(input_area)
 
     layout = Layout(
         HSplit([
@@ -368,7 +414,7 @@ def _show_index_and_jump(
             Label(text=""),
             input_area,
         ]),
-        focused_element=list_area,
+        focused_element=item_windows[current_i] if n_articles else input_area,
     )
     app = Application(
         layout=layout,
@@ -376,6 +422,21 @@ def _show_index_and_jump(
         full_screen=False,
         mouse_support=True,
     )
+
+    def on_input_accept():
+        raw = input_area.text.strip()
+        if not raw:
+            app.exit(result=current_i)
+        else:
+            try:
+                num = int(raw)
+                if 1 <= num <= n_articles:
+                    app.exit(result=num - 1)
+            except ValueError:
+                pass
+
+    input_area.buffer.accept_handler = on_input_accept
+
     out = app.run()
     return out if out is not None else current_i
 

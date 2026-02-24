@@ -14,9 +14,10 @@ from utils.db_management import (
 
 class Phase(Enum):
     DEFAULT = "default"
+    METADATA_SCREENED = "metadata_screened"
     TITLE_SCREENED = "title_screened"
     TITLE_SOLVED = "title_solved"
-    CONTENT_SCREENED = "content_screened"
+    CONTENT_SCREENED = "content_screened"    
     CONTENT_SOLVED = "content_solved"
 
 
@@ -81,6 +82,35 @@ def add_screening_data(
         **annotations
     )
 
+def update_screening_data(
+    db_manager: DBManager,
+    index: int,
+    iteration: int,
+    rater: str,
+    screening_phase: str,
+    settled: bool,
+    keep: bool,
+):
+    if screening_phase == "title":
+        db_manager.update_screening_data(
+            iteration=iteration,
+            article_id=f"article_{index}",
+            keep_title=keep,
+            title_settled=settled,
+            rater=rater,
+        )
+    elif screening_phase == "content":
+        db_manager.update_screening_data(
+            iteration=iteration,
+            article_id=f"article_{index}",
+            keep_content=keep,
+            content_settled=settled,
+            rater=rater,
+        )
+    else:
+        raise ValueError(f"Invalid screening phase: {screening_phase}")
+    
+
 def generate_annotations(search_conf: dict) -> dict:
     return {
         search_conf["annotations"][i]: random.choice(["annotation_1", "annotation_2", "annotation_3", "annotation_4", "annotation_5"]) 
@@ -88,7 +118,7 @@ def generate_annotations(search_conf: dict) -> dict:
     }
 
 def populate_default(db_manager: DBManager, length: int, iterations: int, search_conf: dict):
-    for iteration in range(iterations):
+    for iteration in range(1, iterations + 1):
         for index in range(length):
             add_iteration_data(
                 db_manager, 
@@ -96,6 +126,17 @@ def populate_default(db_manager: DBManager, length: int, iterations: int, search
                 iteration=iteration, 
                 search_conf=search_conf,
                 selected=SelectionStage.NOT_SELECTED,
+            )
+
+def populate_metadata_screened(db_manager: DBManager, length: int, iterations: int, search_conf: dict):
+    for iteration in range(1, iterations + 1):
+        for index in range(length):
+            add_iteration_data(
+                db_manager, 
+                index=index, 
+                iteration=iteration, 
+                search_conf=search_conf,
+                selected=SelectionStage.METADATA_APPROVED,
             )
 
 def populate_title_screened(db_manager: DBManager, length: int, raters: list[str], search_conf: dict):
@@ -157,7 +198,7 @@ def populate_title_solved(db_manager: DBManager, length: int, raters: list[str],
             )
 
 def populate_content_screened(db_manager: DBManager, length: int, raters: list[str], search_conf: dict):
-    number_of_approved = int(input(f"Generating {length} articles for title screening. Enter number of articles approved: "))
+    number_of_approved = int(input(f"Generating {length} articles for content screening. Enter number of articles approved: "))
     
     for i in range(number_of_approved):
         add_iteration_data(
@@ -178,12 +219,23 @@ def populate_content_screened(db_manager: DBManager, length: int, raters: list[s
                 index=i, 
                 iteration=1, 
                 rater=rater, 
-                screening_phase="title", 
+                screening_phase="content", 
                 settled=False, 
                 keep=keep, 
                 reason=random.choice(["reason_1", "reason_2", "reason_3"]),
                 search_conf=search_conf,
                 **annotations
+            )
+            update_screening_data(
+                db_manager,
+                index=i,
+                iteration=1,
+                rater=rater,
+                screening_phase="title",
+                settled=True,
+                keep=True,
+                #reason=random.choice(["reason_1", "reason_2", "reason_3"]),
+                #search_conf=search_conf,
             )
 
 def populate_content_solved(db_manager: DBManager, length: int, raters: list[str], search_conf: dict):
@@ -219,7 +271,7 @@ def populate_content_solved(db_manager: DBManager, length: int, raters: list[str
                 index=i, 
                 iteration=1, 
                 rater=rater, 
-                screening_phase="title", 
+                screening_phase="content", 
                 settled=True, 
                 keep=keep, 
                 reason=random.choice(["reason_1", "reason_2", "reason_3"]),

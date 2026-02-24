@@ -27,7 +27,7 @@ def download_pdfs(articles: List[ArticleData], folder: str) -> List[ArticleData]
 
 @click.command()
 @click.option('--iteration', type=int, required=True, help='Iteration number')
-@click.option('--db-path', type=str, default=None, help='Database path (defaults to search_conf.json value)')
+@click.option('--db-path', type=str, default=None, help='Database path (defaults to search_conf.json). Use the same DB as in step 7 (solve title disagreements).')
 @click.option('--rater', type=str, required=True, help='Rater ID')
 @click.option('--llm', type=bool, default=False, help='Use LLM for screening')
 @click.option('--model', type=str, default='gpt-4o', help='Model to use for screening')

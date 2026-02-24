@@ -19,7 +19,6 @@ def main(iteration, db_path, rater, llm, model, api_key):
     """Filter articles by title with interactive CLI."""
     if db_path is None:
         db_path = search_conf["db_path"]
-    
     db_manager = DBManager(db_path)
     articles = db_manager.get_iteration_data(
         iteration=iteration, 

@@ -220,16 +220,13 @@ def generate_search_conf(data):
         except Exception as e:
             raise ValueError(f"Failed to read proxy key file: {str(e)}")
     
-    # Normalize database path - if it's just a filename, put it in databases/ folder
+    # Use the provided database path as-is; only default to databases/ when none given
     db_path = data.get('db_path', '').strip()
     if not db_path:
         db_path = os.path.join(DATABASES_DIR, 'database.db')
     else:
-        # If it's just a filename (no directory separator), prepend databases/
-        if os.path.sep not in db_path and '/' not in db_path and '\\' not in db_path:
-            # It's just a filename, prepend databases/
-            db_path = os.path.join(DATABASES_DIR, db_path)
-        # If it's already an absolute path or has a directory, leave it as-is
+        # Resolve relative or bare filenames relative to cwd (do not force into databases/)
+        db_path = os.path.abspath(db_path)
     
     config = {
         "start_year": int(data.get('start_year', 2020)),
@@ -783,9 +780,7 @@ def load_database():
             db_path = (request.form.get('db_path') or '').strip()
         if not db_path:
             return jsonify({'success': False, 'error': 'Database path not provided'}), 400
-        # Resolve relative path: if no path separators, treat as under DATABASES_DIR
-        if os.path.sep not in db_path and '/' not in db_path and '\\' not in db_path:
-            db_path = os.path.join(DATABASES_DIR, db_path)
+        # Use the path as-is: resolve relative/bare paths relative to cwd (no copy to databases/)
         db_path = os.path.abspath(db_path)
         ok, result = _validate_and_set_db_path(db_path)
         return result
@@ -803,7 +798,7 @@ def database_state():
     if search_conf and 'db_path' in search_conf:
         db_path = search_conf['db_path']
     else:
-        db_path = 'database.db'
+        db_path = os.path.join(DATABASES_DIR, 'database.db')
     
     db_exists = os.path.exists(db_path)
     db_error = None
@@ -2693,41 +2688,28 @@ def filter_by_title_page():
 
 @app.route('/api/workflow/filter_by_title/articles', methods=['GET'])
 def get_articles_for_title_filter():
-    """Get list of articles that need title filtering for an iteration. Excludes articles already screened by this rater (resumable)."""
+    """Get list of articles that need title filtering. Includes already-screened (for editing); sorted with screened first; start_index for first unevaluated."""
     try:
         iteration = int(request.args.get('iteration'))
         rater = (request.args.get('rater') or '').strip()
-        
-        # Get database path from config
         search_conf = load_search_conf()
         if not search_conf or 'db_path' not in search_conf:
             return jsonify({'error': 'Database path not configured'}), 400
-        
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
-        
-        # Exclude articles this rater has already screened (so resume shows only remaining)
-        excluded_ids = set()
-        if rater:
-            try:
-                excluded_ids = set(db_manager.get_screened_article_ids(iteration=iteration, rater=rater))
-            except Exception:
-                pass
-        
-        # Check if metadata filtering step was skipped
+
         workflow_state = load_workflow_state()
         skipped_steps = workflow_state.get('skipped_steps', [])
         metadata_skipped = 'Step 5: Filter by Metadata' in skipped_steps
-        
-        # Get articles that need title filtering
+
+        # Include METADATA_APPROVED (1) and TITLE_APPROVED (2) so we show all: not evaluated, rejected, and approved
         if metadata_skipped:
             articles_metadata = db_manager.get_iteration_data(
                 iteration=iteration,
-                selected=SelectionStage.METADATA_APPROVED
+                selected__in=[SelectionStage.METADATA_APPROVED.value, SelectionStage.TITLE_APPROVED.value]
             )
             articles_not_selected = db_manager.get_iteration_data(
-                iteration=iteration,
-                selected=SelectionStage.NOT_SELECTED
+                iteration=iteration, selected=SelectionStage.NOT_SELECTED
             )
             article_dict = {}
             for article in articles_metadata:
@@ -2739,22 +2721,45 @@ def get_articles_for_title_filter():
         else:
             articles = db_manager.get_iteration_data(
                 iteration=iteration,
-                selected=SelectionStage.METADATA_APPROVED
+                selected__in=[SelectionStage.METADATA_APPROVED.value, SelectionStage.TITLE_APPROVED.value]
             )
             if len(articles) == 0:
                 articles = db_manager.get_iteration_data(
-                    iteration=iteration,
-                    selected=SelectionStage.NOT_SELECTED
+                    iteration=iteration, selected=SelectionStage.NOT_SELECTED
                 )
-        
-        # Filter out already title-approved and already screened by this rater
+
+        # Return all articles in scope (approved, rejected, not yet evaluated) so the UI can show and navigate the full list
+        # Deduplicate by id
+        seen = set()
+        articles = [a for a in articles if a.id not in seen and not seen.add(a.id)]
+
+        article_ids = [a.id for a in articles]
+        existing_screening = []
+        if rater and article_ids:
+            try:
+                existing_screening = db_manager.get_screening_data_for_rater(article_ids, iteration, rater, phase="title")
+            except Exception:
+                pass
+        by_id = {row['id']: row for row in existing_screening}
+
+        # Sort: previously screened first, unscreened last
+        articles.sort(key=lambda a: (0 if a.id in by_id else 1))
+        start_index = 0
+        while start_index < len(articles) and articles[start_index].id in by_id:
+            start_index += 1
+        # If all assigned, start at last article
+        if start_index >= len(articles) and articles:
+            start_index = len(articles) - 1
+
         articles_data = []
         for article in articles:
-            selected_int = int(article.selected) if article.selected is not None else 0
-            if selected_int >= SelectionStage.TITLE_APPROVED.value:
-                continue
-            if article.id in excluded_ids:
-                continue
+            row = by_id.get(article.id)
+            keep = None
+            reason = ''
+            if row is not None:
+                kv = row.get('keep_title')
+                keep = True if kv in (1, True, '1') else False if kv is not None else None
+                reason = (row.get('reason_title') or '') or ''
             articles_data.append({
                 'id': article.id,
                 'title': article.title or '',
@@ -2762,15 +2767,15 @@ def get_articles_for_title_filter():
                 'pub_year': article.pub_year or '',
                 'eprint_url': article.eprint_url or '',
                 'authors': article.authors or '',
-                'title_reason': getattr(article, 'title_reason', '') or ''
+                'title_reason': reason,
+                'previous_decision': 'approve' if keep else 'reject' if keep is False else None,
             })
-        
         return jsonify({
             'success': True,
             'articles': articles_data,
-            'total': len(articles_data)
+            'total': len(articles_data),
+            'start_index': start_index,
         })
-        
     except Exception as e:
         import traceback
         print(traceback.format_exc())
@@ -3054,68 +3059,57 @@ def filter_by_content_page():
 
 @app.route('/api/workflow/filter_by_content/articles', methods=['GET'])
 def get_articles_for_content_filter():
-    """Get articles that need content filtering (title-approved). Excludes already screened by this rater (resumable)."""
+    """Get articles that need content filtering. Includes already-screened (for editing); sorted with screened first; start_index for first unevaluated."""
     try:
         iteration = int(request.args.get('iteration', 0))
         rater = (request.args.get('rater') or '').strip()
-        
-        # Get database path from config
         search_conf = load_search_conf()
         if not search_conf or 'db_path' not in search_conf:
             return jsonify({'error': 'Database path not configured'}), 400
-        
         db_path = search_conf['db_path']
         db_manager = DBManager(db_path)
-        
-        # Exclude articles this rater has already content-screened (resume)
-        excluded_ids = set()
-        if rater:
-            try:
-                excluded_ids = set(db_manager.get_screened_article_ids(iteration=iteration, rater=rater, phase="content"))
-            except Exception:
-                pass
-        
-        # Get articles with TITLE_APPROVED status that haven't been content-filtered yet
+
+        # Include TITLE_APPROVED (2) and CONTENT_APPROVED (3) so we show all: not evaluated, rejected, and approved
         articles = db_manager.get_iteration_data(
             iteration=iteration,
-            selected=SelectionStage.TITLE_APPROVED
+            selected__in=[SelectionStage.TITLE_APPROVED.value, SelectionStage.CONTENT_APPROVED.value]
         )
-        
-        # Filter out already content-approved and already content-screened by this rater
-        filtered_articles = []
-        for article in articles:
-            if article.id in excluded_ids:
-                continue
-            selected_int = int(article.selected) if article.selected is not None else 0
-            keep_content = getattr(article, 'keep_content', True)
-            if selected_int < SelectionStage.CONTENT_APPROVED.value and keep_content:
-                filtered_articles.append(article)
-        
-        # Convert to JSON-serializable format
+        filtered_articles = list(articles)
+        seen = set()
+        filtered_articles = [a for a in filtered_articles if a.id not in seen and not seen.add(a.id)]
+        article_ids = [a.id for a in filtered_articles]
+        existing_screening = []
+        if rater and article_ids:
+            try:
+                existing_screening = db_manager.get_screening_data_for_rater(article_ids, iteration, rater, phase="content")
+            except Exception:
+                pass
+        by_id = {row['id']: row for row in existing_screening}
+        filtered_articles.sort(key=lambda a: (0 if a.id in by_id else 1))
+        start_index = 0
+        while start_index < len(filtered_articles) and filtered_articles[start_index].id in by_id:
+            start_index += 1
+        # If all assigned, start at last article
+        if start_index >= len(filtered_articles) and filtered_articles:
+            start_index = len(filtered_articles) - 1
+
+        annotations_config = search_conf.get('annotations', [])
         articles_data = []
         for article in filtered_articles:
-            # Parse content_reason if it exists (might be JSON with annotations)
-            content_reason = getattr(article, 'content_reason', '') or ''
+            row = by_id.get(article.id)
             reason_text = ''
             annotations_data = {}
-            
-            if content_reason:
-                try:
-                    # Try to parse as JSON (if it contains annotations)
-                    reason_json = json.loads(content_reason)
-                    reason_text = reason_json.get('reason', '')
-                    # Extract annotation fields (everything except 'reason')
-                    for key, value in reason_json.items():
-                        if key != 'reason':
-                            annotations_data[key] = value
-                except (json.JSONDecodeError, TypeError):
-                    # If not JSON, treat as plain text reason
-                    reason_text = content_reason
-            
-            # Get all URL fields
+            previous_decision = None
+            if row is not None:
+                kv = row.get('keep_content')
+                previous_decision = 'approve' if kv in (1, True, '1') else 'reject' if kv is not None else None
+                reason_text = (row.get('reason_content') or '') or ''
+                for ann in annotations_config:
+                    v = row.get(ann)
+                    if v is not None and str(v).strip():
+                        annotations_data[ann] = str(v).strip()
             eprint_url = getattr(article, 'eprint_url', '') or ''
             pub_url = getattr(article, 'pub_url', '') or ''
-            
             articles_data.append({
                 'id': article.id,
                 'title': getattr(article, 'title', '') or '',
@@ -3125,15 +3119,15 @@ def get_articles_for_content_filter():
                 'pub_url': pub_url,
                 'authors': getattr(article, 'authors', '') or '',
                 'content_reason': reason_text,
-                'annotations': annotations_data
+                'annotations': annotations_data,
+                'previous_decision': previous_decision,
             })
-        
         return jsonify({
             'success': True,
             'articles': articles_data,
-            'total': len(articles_data)
+            'total': len(articles_data),
+            'start_index': start_index,
         })
-        
     except Exception as e:
         import traceback
         print(traceback.format_exc())
@@ -3825,9 +3819,12 @@ def merge_title_databases():
         if other_dbs:
             merged_db.merge_databases(*other_dbs)
         
+        # Target for write-back is the first DB (the one we copied from)
+        target_db_path = os.path.normpath(os.path.abspath(db_paths[0]))
         return jsonify({
             'success': True,
             'merged_db_path': merged_db_path,
+            'target_db_path': target_db_path,
             'message': f'Successfully merged {len(db_paths)} database(s) into {merged_db_name}'
         })
         
@@ -3935,6 +3932,91 @@ def find_title_disagreements():
             'total': len(disagreements)
         })
         
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/solve_title_disagreements/get_all_disagreements', methods=['POST'])
+def get_all_title_disagreements():
+    """Return all title disagreement articles (settled + unsettled) with start_index for first unsettled."""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration'))
+        merged_db_path = data.get('merged_db_path')
+        if not merged_db_path or not os.path.exists(merged_db_path):
+            return jsonify({'error': 'Merged database path is required and must exist'}), 400
+        merged_db = DBManager(merged_db_path)
+        try:
+            settle_agreements(iteration, merged_db, SelectionStage.TITLE_APPROVED)
+        except Exception:
+            pass
+        all_rows = merged_db.get_all_screening_rows_for_iteration(iteration)
+        by_id = {}
+        for row in all_rows:
+            aid = row.get('id')
+            if aid not in by_id:
+                by_id[aid] = []
+            by_id[aid].append(row)
+        disagreements_out = []
+        for article_id, rows in by_id.items():
+            keep_vals = set()
+            for r in rows:
+                kv = r.get('keep_title')
+                keep_vals.add(1 if kv in (1, True, '1') else 0)
+            if len(keep_vals) < 2:
+                continue
+            articles = merged_db.get_iteration_data(iteration=iteration, id=article_id)
+            if not articles:
+                continue
+            article = articles[0]
+            selected_by = []
+            filtered_out_by = []
+            reasons = {}
+            any_settled = False
+            for r in rows:
+                rater = r.get('rater', '')
+                keep_title = r.get('keep_title', False)
+                if keep_title in (1, True, '1'):
+                    selected_by.append(rater)
+                else:
+                    filtered_out_by.append(rater)
+                reasons[rater] = (r.get('reason_title') or '') or 'No reason provided'
+                if r.get('title_settled') in (1, True, '1'):
+                    any_settled = True
+            settled = any_settled
+            final_decision = None
+            if settled:
+                # Read keep_title by column name to avoid schema/order mismatches (e.g. after reload)
+                keep_title = merged_db.get_keep_title(article_id, iteration)
+                if keep_title is None:
+                    keep_title = getattr(article, 'keep_title', None) in (1, True, '1')
+                final_decision = 'accept' if keep_title is True else 'reject'
+            disagreements_out.append({
+                'id': article_id,
+                'title': article.title or 'No title',
+                'url': article.pub_url or article.eprint_url or '',
+                'selected_by': selected_by,
+                'filtered_out_by': filtered_out_by,
+                'not_selected_by': [],
+                'reasons': reasons,
+                'settled': settled,
+                'final_decision': final_decision,
+            })
+        # Already-assigned (settled) at the beginning, not-yet-assigned at the end
+        disagreements_out.sort(key=lambda d: (0 if d['settled'] else 1))  # 0 first => settled first
+        start_index = 0
+        while start_index < len(disagreements_out) and disagreements_out[start_index]['settled']:
+            start_index += 1
+        if start_index >= len(disagreements_out) and disagreements_out:
+            start_index = len(disagreements_out) - 1
+        return jsonify({
+            'success': True,
+            'disagreements': disagreements_out,
+            'total': len(disagreements_out),
+            'start_index': start_index,
+        })
     except Exception as e:
         import traceback
         print(traceback.format_exc())
@@ -4254,66 +4336,60 @@ def find_content_disagreements():
             print(f"Error settling agreements: {traceback.format_exc()}")
             # Continue even if there's an error - we still want to find disagreements
         
-        # Get disagreements using get_disagreements_screening_data
+        # Get all screening rows; include rows with keep_content in (0, 1) regardless of title_settled
+        # (content screening can exist without title screening). Only unsettled for find_disagreements.
         try:
-            disagreements_raw = merged_db.get_disagreements_screening_data(
-                iteration=iteration,
-                title_settled=True,
-                content_settled=False,
-                phase="content"
-            )
+            all_rows = merged_db.get_all_screening_rows_for_iteration(iteration)
         except Exception as e:
             import traceback
             print(traceback.format_exc())
-            disagreements_raw = []
+            all_rows = []
         
-        if not disagreements_raw:
-            return jsonify({
-                'success': True,
-                'disagreements': [],
-                'total': 0,
-                'message': 'No disagreements found. All raters agreed on all articles.'
-            })
+        def _has_keep_content_value(r):
+            kv = r.get('keep_content')
+            return kv in (0, 1, True, False, '0', '1')
+        # Unsettled only, and must have a content decision (0 or 1)
+        content_rows = [
+            r for r in all_rows
+            if _has_keep_content_value(r) and r.get('content_settled') not in (1, True, '1')
+        ]
+        by_id = {}
+        for row in content_rows:
+            aid = row.get('id')
+            if aid not in by_id:
+                by_id[aid] = []
+            by_id[aid].append(row)
         
-        # Cluster disagreements by article_id
-        clustered_disagreements = {}
-        for disagreement in disagreements_raw:
-            article_id = disagreement['id']
-            if article_id not in clustered_disagreements:
-                clustered_disagreements[article_id] = []
-            clustered_disagreements[article_id].append(disagreement)
-        
-        # Get article details from iterations table
+        search_conf = load_search_conf()
+        annotations_config = search_conf.get('annotations', []) if search_conf else []
         disagreements = []
-        for article_id, disagreement_list in clustered_disagreements.items():
-            # Get article details
+        for article_id, disagreement_list in by_id.items():
+            keep_vals = set()
+            for r in disagreement_list:
+                kv = r.get('keep_content')
+                if kv in (1, True, '1'):
+                    keep_vals.add(1)
+                elif kv in (0, False, '0'):
+                    keep_vals.add(0)
+            if len(keep_vals) < 2:
+                continue
             articles = merged_db.get_iteration_data(iteration=iteration, id=article_id)
             if not articles:
-                continue  # Skip if article not found
-            
+                continue
             article = articles[0]
-            
-            # Organize by rater
             selected_by = []
             filtered_out_by = []
             reasons = {}
-            annotations = {}  # Track annotations for each rater
-            
+            annotations = {}
             for disagreement in disagreement_list:
                 rater = disagreement.get('rater', '')
-                keep_content = disagreement.get('keep_content', False)
+                keep_content = disagreement.get('keep_content')
                 reason_content = disagreement.get('reason_content', '') or ''
-                
-                if keep_content:
+                if keep_content in (1, True, '1'):
                     selected_by.append(rater)
-                else:
+                elif keep_content in (0, False, '0'):
                     filtered_out_by.append(rater)
-                
                 reasons[rater] = reason_content if reason_content else "No reason provided"
-                
-                # Get annotations for this rater (all annotation columns)
-                search_conf = load_search_conf()
-                annotations_config = search_conf.get('annotations', []) if search_conf else []
                 rater_annotations = {}
                 for annotation_key in annotations_config:
                     annotation_value = disagreement.get(annotation_key, '')
@@ -4321,14 +4397,13 @@ def find_content_disagreements():
                         rater_annotations[annotation_key] = annotation_value
                 if rater_annotations:
                     annotations[rater] = rater_annotations
-            
             disagreements.append({
                 'id': article_id,
                 'title': article.title or 'No title',
                 'url': article.pub_url or article.eprint_url or '',
                 'selected_by': selected_by,
                 'filtered_out_by': filtered_out_by,
-                'not_selected_by': [],  # Not applicable for merged database
+                'not_selected_by': [],
                 'reasons': reasons,
                 'annotations': annotations
             })
@@ -4336,9 +4411,114 @@ def find_content_disagreements():
         return jsonify({
             'success': True,
             'disagreements': disagreements,
-            'total': len(disagreements)
+            'total': len(disagreements),
+            'message': 'No disagreements found. All raters agreed on all articles.' if not disagreements else None
         })
         
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/workflow/solve_content_disagreements/get_all_disagreements', methods=['POST'])
+def get_all_content_disagreements():
+    """Return all content disagreement articles (settled + unsettled) with start_index for first unsettled."""
+    try:
+        data = request.get_json()
+        iteration = int(data.get('iteration'))
+        merged_db_path = data.get('merged_db_path')
+        if not merged_db_path or not os.path.exists(merged_db_path):
+            return jsonify({'error': 'Merged database path is required and must exist'}), 400
+        merged_db = DBManager(merged_db_path)
+        try:
+            settle_agreements(iteration, merged_db, SelectionStage.CONTENT_APPROVED)
+        except Exception:
+            pass
+        all_rows = merged_db.get_all_screening_rows_for_iteration(iteration)
+        # Include all rows that have a value in keep_content (1 or 0), regardless of title_settled
+        # (raters who did content but not title screening are included)
+        def _has_keep_content_value(r):
+            kv = r.get('keep_content')
+            return kv in (0, 1, True, False, '0', '1')
+        content_rows = [r for r in all_rows if _has_keep_content_value(r)]
+        by_id = {}
+        for row in content_rows:
+            aid = row.get('id')
+            if aid not in by_id:
+                by_id[aid] = []
+            by_id[aid].append(row)
+        search_conf = load_search_conf()
+        annotations_config = search_conf.get('annotations', []) if search_conf else []
+        disagreements_out = []
+        for article_id, rows in by_id.items():
+            keep_vals = set()
+            for r in rows:
+                kv = r.get('keep_content')
+                if kv in (1, True, '1'):
+                    keep_vals.add(1)
+                elif kv in (0, False, '0'):
+                    keep_vals.add(0)
+            if len(keep_vals) < 2:
+                continue
+            articles = merged_db.get_iteration_data(iteration=iteration, id=article_id)
+            if not articles:
+                continue
+            article = articles[0]
+            selected_by = []
+            filtered_out_by = []
+            reasons = {}
+            annotations = {}
+            any_settled = False
+            for r in rows:
+                rater = r.get('rater', '')
+                keep_content = r.get('keep_content')
+                # Only explicit 1 = accept, explicit 0 = reject; no value = not interpreted as rejection
+                if keep_content in (1, True, '1'):
+                    selected_by.append(rater)
+                elif keep_content in (0, False, '0'):
+                    filtered_out_by.append(rater)
+                reasons[rater] = (r.get('reason_content') or '') or 'No reason provided'
+                if r.get('content_settled') in (1, True, '1'):
+                    any_settled = True
+                rater_annotations = {}
+                for annotation_key in annotations_config:
+                    v = r.get(annotation_key, '')
+                    if v:
+                        rater_annotations[annotation_key] = v
+                if rater_annotations:
+                    annotations[rater] = rater_annotations
+            settled = any_settled
+            final_decision = None
+            if settled:
+                keep_content = merged_db.get_keep_content(article_id, iteration)
+                if keep_content is None:
+                    keep_content = getattr(article, 'keep_content', None) in (1, True, '1')
+                final_decision = 'accept' if keep_content is True else 'reject'
+            disagreements_out.append({
+                'id': article_id,
+                'title': article.title or 'No title',
+                'url': article.pub_url or article.eprint_url or '',
+                'selected_by': selected_by,
+                'filtered_out_by': filtered_out_by,
+                'not_selected_by': [],
+                'reasons': reasons,
+                'annotations': annotations,
+                'settled': settled,
+                'final_decision': final_decision,
+            })
+        disagreements_out.sort(key=lambda d: (0 if d['settled'] else 1))
+        start_index = 0
+        while start_index < len(disagreements_out) and disagreements_out[start_index]['settled']:
+            start_index += 1
+        if start_index >= len(disagreements_out) and disagreements_out:
+            start_index = len(disagreements_out) - 1
+        return jsonify({
+            'success': True,
+            'disagreements': disagreements_out,
+            'total': len(disagreements_out),
+            'start_index': start_index,
+        })
     except Exception as e:
         import traceback
         print(traceback.format_exc())

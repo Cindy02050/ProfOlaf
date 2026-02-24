@@ -212,7 +212,12 @@
                         <div id="progressSection" class="mt-4" style="display: none;">
                             <div class="card">
                                 <div class="card-body">
-                                    <h5>Progress</h5>
+                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                        <h5 class="mb-0">Progress</h5>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="indexDisagreementsBtn">
+                                            <i class="fas fa-list"></i> Index
+                                        </button>
+                                    </div>
                                     <div class="progress mb-2" style="height: 30px;">
                                         <div class="progress-bar" role="progressbar" id="progressBar" style="width: 0%">
                                             <span id="progressText">0 / 0</span>
@@ -227,6 +232,10 @@
 
                         <!-- Disagreement Display Section -->
                         <div id="disagreementSection" style="display: none;">
+                            <div class="alert py-2 small d-flex align-items-center gap-2" id="settledBanner" style="display: none;">
+                                <span id="settledBannerIcon"></span>
+                                <span id="settledBannerText"></span>
+                            </div>
                             <div class="card">
                                 <div class="card-header bg-secondary text-white">
                                     <h4 class="mb-0">
@@ -301,6 +310,24 @@
                             <i class="fas fa-exclamation-circle"></i> <span id="errorMessage"></span>
                         </div>
 
+                        <!-- Index modal for disagreements -->
+                        <div class="modal fade" id="indexDisagreementsModal" tabindex="-1">
+                            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"><i class="fas fa-list"></i> Disagreements index</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted small mb-2"><strong>Click an item</strong> to jump to it. <span class="badge bg-success">Accepted</span> <span class="badge bg-danger">Rejected</span> <span class="badge bg-secondary">Not set</span></p>
+                                        <div class="mb-2" style="max-height: 50vh; overflow-y: auto;">
+                                            <ul class="list-group list-group-flush" id="indexDisagreementsList"></ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Confirmation Modal -->
                         <div class="modal fade" id="confirmMergeModal" tabindex="-1" aria-labelledby="confirmMergeModalLabel" aria-hidden="true">
                             <div class="modal-dialog">
@@ -331,7 +358,7 @@
                         <!-- Completion Message -->
                         <div id="completionSection" class="alert alert-success mt-3" style="display: none;">
                             <span id="completionMessage"><i class="fas fa-check-circle"></i> All disagreements have been resolved!</span>
-                            
+                            <p class="mb-0 mt-1 small">Use the <strong>Index</strong> button above to review or change any decision.</p>
                             <!-- Agreed Articles / Final Annotations -->
                             <div id="agreedArticlesBlock" class="mt-3" style="display: none;">
                                 <h6><i class="fas fa-tags"></i> Annotations for agreed articles</h6>
@@ -383,7 +410,8 @@
         const annotationFields = {{ annotations | default([]) | tojson }};
         let disagreements = [];
         let currentDisagreementIndex = 0;
-        let initialTotalDisagreements = 0; // Keep fixed so "Disagreement i of N" stays correct when list shrinks
+        let initialTotalDisagreements = 0;
+        let currentPosition = 0; // 1-based position for progress
         let dbPaths = [];
         let currentIteration = null;
         let mergedDbPath = null;
@@ -536,23 +564,18 @@
                     localStorage.setItem('solve_content_iteration', String(iteration));
                 } catch (e) {}
 
-                // Now find disagreements from merged database
-                document.getElementById('loadingSpinner').querySelector('p').textContent = 'Finding disagreements...';
-                return fetch('/api/workflow/solve_content_disagreements/find_disagreements', {
+                // Get all disagreements (settled + unsettled) and start at first unsettled
+                document.getElementById('loadingSpinner').querySelector('p').textContent = 'Loading disagreements...';
+                return fetch('/api/workflow/solve_content_disagreements/get_all_disagreements', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        iteration: iteration,
-                        merged_db_path: mergedDbPath
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ iteration: iteration, merged_db_path: mergedDbPath })
                 });
             })
             .then(response => response.json())
             .then(data => {
                 document.getElementById('loadingSpinner').style.display = 'none';
-                handleFindDisagreementsResponse(data);
+                handleGetAllDisagreementsResponse(data);
             })
             .catch(error => {
                 document.getElementById('loadingSpinner').style.display = 'none';
@@ -589,11 +612,46 @@
                 return;
             }
             currentDisagreementIndex = 0;
+            currentPosition = 1;
             document.getElementById('progressSection').style.display = 'block';
             document.getElementById('disagreementSection').style.display = 'block';
             document.getElementById('setupSection').style.display = 'none';
             updateProgress();
             loadCurrentDisagreement();
+        }
+
+        function handleGetAllDisagreementsResponse(data) {
+            if (!data.success) {
+                showError(data.error || 'Failed to load disagreements');
+                document.getElementById('setupSection').style.display = 'block';
+                return;
+            }
+            disagreements = data.disagreements || [];
+            initialTotalDisagreements = disagreements.length;
+            if (disagreements.length === 0) {
+                document.getElementById('setupSection').style.display = 'none';
+                document.getElementById('completionSection').style.display = 'block';
+                const msgEl = document.getElementById('completionMessage');
+                if (msgEl) msgEl.innerHTML = '<i class="fas fa-check-circle"></i> No disagreements found! All raters agreed on all articles.';
+                loadAgreedArticlesSection();
+                return;
+            }
+            const startIndex = typeof data.start_index === 'number' ? data.start_index : 0;
+            currentDisagreementIndex = Math.max(0, Math.min(startIndex, disagreements.length - 1));
+            currentPosition = currentDisagreementIndex + 1;
+            document.getElementById('progressSection').style.display = 'block';
+            document.getElementById('setupSection').style.display = 'none';
+            if (startIndex >= disagreements.length) {
+                // All settled: show completion (Index still usable)
+                document.getElementById('disagreementSection').style.display = 'none';
+                document.getElementById('completionSection').style.display = 'block';
+                updateProgress();
+            } else {
+                document.getElementById('disagreementSection').style.display = 'block';
+                document.getElementById('completionSection').style.display = 'none';
+                updateProgress();
+                loadCurrentDisagreement();
+            }
         }
 
         function resumeContentDisagreements() {
@@ -611,12 +669,12 @@
             mergedDbPath = savedPath;
             currentIteration = iteration;
             document.getElementById('loadingSpinner').style.display = 'block';
-            document.getElementById('loadingSpinner').querySelector('p').textContent = 'Loading remaining disagreements...';
+            document.getElementById('loadingSpinner').querySelector('p').textContent = 'Loading disagreements...';
             document.getElementById('setupSection').style.display = 'none';
             document.getElementById('errorAlert').style.display = 'none';
             document.getElementById('disagreementSection').style.display = 'none';
             document.getElementById('completionSection').style.display = 'none';
-            fetch('/api/workflow/solve_content_disagreements/find_disagreements', {
+            fetch('/api/workflow/solve_content_disagreements/get_all_disagreements', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ iteration: iteration, merged_db_path: mergedDbPath })
@@ -624,7 +682,7 @@
             .then(response => response.json())
             .then(data => {
                 document.getElementById('loadingSpinner').style.display = 'none';
-                handleFindDisagreementsResponse(data);
+                handleGetAllDisagreementsResponse(data);
             })
             .catch(error => {
                 document.getElementById('loadingSpinner').style.display = 'none';
@@ -741,6 +799,8 @@
             if (currentDisagreementIndex < 0 || currentDisagreementIndex >= disagreements.length) {
                 return;
             }
+            document.getElementById('disagreementSection').style.display = 'block';
+            document.getElementById('completionSection').style.display = 'none';
 
             const disagreement = disagreements[currentDisagreementIndex];
 
@@ -963,6 +1023,30 @@
                 annotationsContainer.innerHTML = html;
             }
 
+            // Settled banner from current item
+            const current = disagreements[currentDisagreementIndex];
+            const isSettled = current && current.settled && current.final_decision;
+            const banner = document.getElementById('settledBanner');
+            const bannerIcon = document.getElementById('settledBannerIcon');
+            const bannerText = document.getElementById('settledBannerText');
+            if (banner) {
+                if (isSettled && current.final_decision === 'accept') {
+                    banner.style.display = 'flex';
+                    if (bannerText) bannerText.textContent = 'Previously settled: Accepted';
+                    if (bannerIcon) bannerIcon.innerHTML = '<i class="fas fa-check-circle"></i>';
+                    banner.className = 'alert alert-success py-2 small d-flex align-items-center gap-2';
+                } else if (isSettled && current.final_decision === 'reject') {
+                    banner.style.display = 'flex';
+                    if (bannerText) bannerText.textContent = 'Previously settled: Rejected';
+                    if (bannerIcon) bannerIcon.innerHTML = '<i class="fas fa-times-circle"></i>';
+                    banner.className = 'alert alert-danger py-2 small d-flex align-items-center gap-2';
+                } else {
+                    banner.style.display = 'none';
+                    if (bannerText) bannerText.textContent = '';
+                    if (bannerIcon) bannerIcon.innerHTML = '';
+                }
+            }
+
             // Update navigation buttons
             document.getElementById('prevDisagreementBtn').disabled = currentDisagreementIndex === 0;
             document.getElementById('nextDisagreementBtn').disabled = currentDisagreementIndex >= disagreements.length - 1;
@@ -973,7 +1057,7 @@
 
         function updateProgress() {
             const total = initialTotalDisagreements;
-            const current = total - disagreements.length + currentDisagreementIndex + 1;
+            const current = currentPosition;
             const percent = total > 0 ? (current / total) * 100 : 0;
 
             document.getElementById('progressBar').style.width = percent + '%';
@@ -981,6 +1065,47 @@
             document.getElementById('currentDisagreementIndex').textContent = current;
             document.getElementById('totalDisagreements').textContent = total;
         }
+
+        function getDisagreementStatusBadge(d) {
+            if (d.settled && d.final_decision === 'accept') return '<span class="badge bg-success">Accepted</span>';
+            if (d.settled && d.final_decision === 'reject') return '<span class="badge bg-danger">Rejected</span>';
+            return '<span class="badge bg-secondary">Not set</span>';
+        }
+
+        function openIndexModal() {
+            const ul = document.getElementById('indexDisagreementsList');
+            if (!ul) return;
+            ul.innerHTML = '';
+            disagreements.forEach(function(d, idx) {
+                const title = (d.title || '').substring(0, 50) + ((d.title || '').length > 50 ? '…' : '');
+                const current = idx === currentDisagreementIndex;
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-start index-list-item' + (current ? ' current' : '');
+                li.style.cursor = 'pointer';
+                li.dataset.index = idx;
+                li.innerHTML = '<span class="d-flex align-items-center gap-2 flex-wrap">' +
+                    '<span class="text-muted">' + (idx + 1) + '/' + disagreements.length + '</span> ' +
+                    getDisagreementStatusBadge(d) + ' ' + title +
+                    (current ? ' <span class="badge bg-primary">current</span>' : '') + '</span>';
+                li.addEventListener('click', function() {
+                    const i = parseInt(this.dataset.index, 10);
+                    currentDisagreementIndex = i;
+                    currentPosition = i + 1;
+                    updateProgress();
+                    loadCurrentDisagreement();
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('indexDisagreementsModal')).hide();
+                });
+                ul.appendChild(li);
+            });
+            new bootstrap.Modal(document.getElementById('indexDisagreementsModal')).show();
+            requestAnimationFrame(function() {
+                const currentLi = ul.querySelector('.index-list-item.current');
+                if (currentLi) currentLi.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            });
+        }
+
+        const indexBtn = document.getElementById('indexDisagreementsBtn');
+        if (indexBtn) indexBtn.addEventListener('click', openIndexModal);
 
         // Navigation (attach when DOM is ready so buttons are available)
         function attachDisagreementNavigation() {
@@ -991,6 +1116,7 @@
                     ev.preventDefault();
                     if (currentDisagreementIndex > 0) {
                         currentDisagreementIndex--;
+                        currentPosition--;
                         updateProgress();
                         loadCurrentDisagreement();
                     }
@@ -1001,8 +1127,16 @@
                     ev.preventDefault();
                     if (currentDisagreementIndex < disagreements.length - 1) {
                         currentDisagreementIndex++;
+                        currentPosition++;
                         updateProgress();
                         loadCurrentDisagreement();
+                    } else if (currentDisagreementIndex === disagreements.length - 1 && disagreements.length > 0) {
+                        currentDisagreementIndex++;
+                        currentPosition++;
+                        document.getElementById('disagreementSection').style.display = 'none';
+                        document.getElementById('completionSection').style.display = 'block';
+                        loadAgreedArticlesSection();
+                        updateProgress();
                     }
                 });
             }
@@ -1084,27 +1218,24 @@
                     return;
                 }
 
+                // Update item in place (no splice)
+                disagreements[currentDisagreementIndex] = Object.assign({}, disagreement, { settled: true, final_decision: decision });
+
                 // Show success message
                 document.getElementById('saveMessage').textContent = `Decision saved: Article ${decision === 'accept' ? 'accepted' : 'rejected'}`;
                 document.getElementById('saveAlert').style.display = 'block';
 
-                // Remove disagreement from list
-                disagreements.splice(currentDisagreementIndex, 1);
+                currentDisagreementIndex++;
+                currentPosition++;
 
-                // Adjust index if needed
-                if (currentDisagreementIndex >= disagreements.length && disagreements.length > 0) {
-                    currentDisagreementIndex = disagreements.length - 1;
-                }
-
-                // Move to next or finish
-                if (disagreements.length > 0) {
-                    updateProgress();
-                    loadCurrentDisagreement();
-                } else {
-                    // All disagreements resolved
+                if (currentDisagreementIndex >= disagreements.length) {
                     document.getElementById('disagreementSection').style.display = 'none';
                     document.getElementById('completionSection').style.display = 'block';
                     loadAgreedArticlesSection();
+                    updateProgress();
+                } else {
+                    updateProgress();
+                    loadCurrentDisagreement();
                 }
 
                 document.getElementById('acceptBtn').disabled = false;
