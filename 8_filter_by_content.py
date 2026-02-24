@@ -1,20 +1,33 @@
 import json
 import click
-from prompt_toolkit import Application
-from prompt_toolkit.layout import Layout, HSplit
-from prompt_toolkit.widgets import TextArea, Button, Label
-from prompt_toolkit.key_binding import KeyBindings
 from utils.db_management import DBManager, SelectionStage
 from utils.cli.pretty_print_utils import pretty_print, format_color_string, prompt_input
 from utils.pipeline.screening import choose_elements
+from utils.pipeline.llm_screening import screen_papers
+from utils.article_processing.download_pdfs import download_pdf
+from utils.db_management import ArticleData
+from typing import List
+
+import os
+import sys
 
 with open("confs/search_conf.json", "r") as f:
     search_conf = json.load(f)
 
+def download_pdfs(articles: List[ArticleData], folder: str) -> List[ArticleData]:
+    """
+    Downloads PDFs for a list of articles.
+    """
+    for article in articles:
+        pdf_path = f"{folder}/{article.id}.pdf"
+        if download_pdf(article.eprint_url, pdf_path):
+            continue
+    return articles
+
 
 @click.command()
 @click.option('--iteration', type=int, required=True, help='Iteration number')
-@click.option('--db-path', type=str, default=None, help='Database path (defaults to search_conf.json value)')
+@click.option('--db-path', type=str, default=None, help='Database path (defaults to search_conf.json). Use the same DB as in step 7 (solve title disagreements).')
 @click.option('--rater', type=str, required=True, help='Rater ID')
 @click.option('--llm', type=bool, default=False, help='Use LLM for screening')
 @click.option('--model', type=str, default='gpt-4o', help='Model to use for screening')
@@ -30,9 +43,12 @@ def main(iteration, db_path, rater, llm, model, api_key, article_folder):
         iteration=iteration,
         selected=SelectionStage.TITLE_APPROVED,
     )
+    article_ids = [article.id for article in articles]
+    existing_screening_data = db_manager.get_screening_data_for_rater(article_ids, iteration, rater, phase="content")
     if not llm:
         choose_elements(
             articles, 
+            existing_screening_data,
             db_manager, 
             iteration, 
             rater, 

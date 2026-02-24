@@ -28,13 +28,13 @@ class ArticleData:
     citedby_url: str = ""
     url_related_articles: str = ""
     eprint_url: str = ""
-    download_filtered_out: bool = False
-    language_filtered_out: bool = False
-    venue_filtered_out: bool = False
-    year_filtered_out: bool = False
-    keep_title: bool = False  # Replaces title_filtered_out - True means keep, False means filtered out
-    keep_content: bool = False  # Replaces abstract_filtered_out - True means keep, False means filtered out
-    new_pub: bool = False
+    download_filtered_out: bool = None  
+    language_filtered_out: bool = None
+    venue_filtered_out: bool = None
+    year_filtered_out: bool = None
+    keep_title: bool = None  # Replaces title_filtered_out - True means keep, False means filtered out
+    keep_content: bool = None  # Replaces abstract_filtered_out - True means keep, False means filtered out
+    new_pub: bool = None
     selected: int = 0
     bibtex: str = ""
     iteration: int = 0
@@ -318,6 +318,9 @@ class DBManager:
                     kwargs[key] = json.dumps(value)
                 elif value is None:
                     kwargs[key] = ""
+                elif isinstance(value, bool):
+                    # Store booleans as 1/0 so keep_title, keep_content etc. round-trip correctly
+                    kwargs[key] = 1 if value else 0
                 elif isinstance(value, int):
                     # Convert integers to strings for SQLite (all integer fields are stored as TEXT)
                     if key in ['id', 'pub_year', 'num_citations', 'selected', 'iteration']:
@@ -330,6 +333,44 @@ class DBManager:
         except Exception as e:
             self.conn.rollback()
             raise ValueError(f"Failed to update iteration data: {e}")
+
+    def get_keep_title(self, article_id: str, iteration: int) -> bool | None:
+        """Read keep_title from iterations table by explicit column name (avoids column-order issues). Returns True/False or None if missing."""
+        try:
+            self.cursor.execute(
+                "SELECT keep_title FROM iterations WHERE id = ? AND iteration = ?",
+                (article_id, iteration)
+            )
+            row = self.cursor.fetchone()
+            if row is None:
+                return None
+            val = row[0]
+            if val in (1, True, '1', 1.0, 'True', 'true'):
+                return True
+            if val in (0, False, '0', 0.0, None, '', 'False', 'false'):
+                return False
+            return bool(val)
+        except Exception:
+            return None
+
+    def get_keep_content(self, article_id: str, iteration: int) -> bool | None:
+        """Read keep_content from iterations table by explicit column name. Returns True/False or None if missing."""
+        try:
+            self.cursor.execute(
+                "SELECT keep_content FROM iterations WHERE id = ? AND iteration = ?",
+                (article_id, iteration)
+            )
+            row = self.cursor.fetchone()
+            if row is None:
+                return None
+            val = row[0]
+            if val in (1, True, '1', 1.0, 'True', 'true'):
+                return True
+            if val in (0, False, '0', 0.0, None, '', 'False', 'false'):
+                return False
+            return bool(val)
+        except Exception:
+            return None
 
     def update_batch_iteration_data(self, iteration: int, update_data: List[Tuple[str, any, str]]):
         table_name = "iterations"
@@ -454,11 +495,9 @@ PRIMARY KEY(id, rater))"
         **annotations: str
     ):
         table_name = "screening"
-        # if there's no table screening, create it
         if not self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'").fetchone():
             self.create_screening_table(list(annotations.keys()))
         try:
-            # Convert boolean to int for SQLite
             keep_int = 1 if keep else 0
             title_settled_int = 1 if screening_phase == "title" and settled else 0
             content_settled_int = 1 if screening_phase == "content" and settled else 0
@@ -466,53 +505,56 @@ PRIMARY KEY(id, rater))"
             reason_key = f"reason_{screening_phase}"
             settle_key = f"{screening_phase}_settled"
             
-            # Build column list - include all columns, setting defaults for the other phase
             annotation_keys = list(annotations.keys())
             
-            # Determine the other phase columns
-            other_phase = "content" if screening_phase == "title" else "title"
-            other_keep_key = f"keep_{other_phase}"
-            other_reason_key = f"reason_{other_phase}"
-            other_settle_key = f"{other_phase}_settled"
-            
-            # Include all columns: id, rater, iteration, title, keep_title, reason_title, title_settled, keep_content, reason_content, content_settled, annotations
             columns = ["id", "rater", "iteration", "title", "keep_title", "reason_title", "title_settled", "keep_content", "reason_content", "content_settled"]
             if annotation_keys:
                 columns.extend(annotation_keys)
             
-            # Build placeholders for VALUES
             placeholders = ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?"]
             if annotation_keys:
                 placeholders.extend(["?"] * len(annotation_keys))
             
-            # Build UPDATE clause for ON CONFLICT - update current phase columns and title
             update_clauses = ["title = ?", f"{keep_key} = ?", f"{reason_key} = ?", f"{settle_key} = ?"]
             if annotation_keys:
                 update_clauses.extend([f"{key} = ?" for key in annotation_keys])
             
-            # Build values: insert values for all columns
-            # For current phase: use actual values
-            # For other phase: use defaults (0 for keep, '' for reason, 0 for settled)
+            def _safe_str(v):
+                if v is None:
+                    return ""
+                if isinstance(v, (list, dict)):
+                    return json.dumps(v)
+                return str(v)
+
+            keep_title_val = (1 if keep else 0) if screening_phase == "title" else None
+            reason_title_val = _safe_str(reason) if screening_phase == "title" else None
+            keep_content_val = (1 if keep else 0) if screening_phase == "content" else None
+            reason_content_val = _safe_str(reason) if screening_phase == "content" else None
+
             insert_values = [
-                article_id, 
-                rater, 
-                iteration,
-                title,                                             # title
-                1 if screening_phase == "title" and keep else 0,  # keep_title
-                reason if screening_phase == "title" else "",    # reason_title
-                title_settled_int,                                # title_settled
-                1 if screening_phase == "content" and keep else 0,  # keep_content
-                reason if screening_phase == "content" else "",     # reason_content
-                content_settled_int                                 # content_settled
+                _safe_str(article_id),
+                _safe_str(rater),
+                int(iteration),
+                _safe_str(title),
+                keep_title_val,
+                reason_title_val,
+                title_settled_int,
+                keep_content_val,
+                reason_content_val,
+                content_settled_int,
             ]
             if annotation_keys:
-                insert_values.extend([annotations[key] for key in annotation_keys])
-            
-            # Update values for ON CONFLICT - update title and current phase
-            update_values = [title, keep_int, reason, title_settled_int if screening_phase == "title" else content_settled_int]
+                insert_values.extend([_safe_str(annotations[key]) for key in annotation_keys])
+
+            update_values = [
+                _safe_str(title),
+                keep_int,
+                _safe_str(reason),
+                title_settled_int if screening_phase == "title" else content_settled_int,
+            ]
             if annotation_keys:
-                update_values.extend([annotations[key] for key in annotation_keys])
-            
+                update_values.extend([_safe_str(annotations[key]) for key in annotation_keys])
+
             query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(placeholders)}) ON CONFLICT(id, rater) DO UPDATE SET {', '.join(update_clauses)}"
             values = tuple(insert_values + update_values)
             
@@ -522,6 +564,29 @@ PRIMARY KEY(id, rater))"
             self.conn.rollback()
             raise ValueError(f"Failed to insert screening data: {e}")
     
+    def get_all_screening_rows_for_iteration(self, iteration: int):
+        """Return all screening rows for an iteration (no filter on settled). Used for listing all disagreements."""
+        table_name = "screening"
+        original_row_factory = self.conn.row_factory
+        try:
+            self.conn.row_factory = sqlite3.Row
+            cursor = self.conn.cursor()
+            query = f"SELECT * FROM {table_name} WHERE iteration = ?"
+            cursor.execute(query, (iteration,))
+            column_names = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                if isinstance(row, sqlite3.Row):
+                    row_dict = {key: row[key] for key in row.keys()}
+                else:
+                    row_dict = dict(zip(column_names, row))
+                result.append(row_dict)
+            cursor.close()
+            return result
+        finally:
+            self.conn.row_factory = original_row_factory
+
     def get_screening_data(self, iteration: int, title_settled: bool = False, content_settled: bool = False):
         table_name = "screening"
         original_row_factory = self.conn.row_factory
@@ -553,11 +618,11 @@ PRIMARY KEY(id, rater))"
         finally:
             self.conn.row_factory = original_row_factory
 
-    def update_screening_data(self, iteration: int, article_id: str, **kwargs):
+    def update_screening_data(self, iteration: int, article_id: str, rater: str, **kwargs):
         table_name = "screening"
         try:
             assignments = ', '.join([f"{key} = ?" for key in kwargs.keys()])
-            sql_query = f"UPDATE {table_name} SET {assignments} WHERE id = ? and iteration = ?"
+            sql_query = f"UPDATE {table_name} SET {assignments} WHERE id = ? and iteration = ? and rater = ?"
             # Convert boolean values to integers for SQLite
             values = []
             for key in kwargs:
@@ -567,7 +632,7 @@ PRIMARY KEY(id, rater))"
                     values.append(1 if value else 0)
                 else:
                     values.append(value)
-            self.cursor.execute(sql_query, values + [article_id, iteration])
+            self.cursor.execute(sql_query, values + [article_id, iteration, rater])
             self.conn.commit()
         except Exception as e:
             self.conn.rollback()
@@ -578,12 +643,15 @@ PRIMARY KEY(id, rater))"
         iteration: int, 
         title_settled: bool = False, 
         content_settled: bool = False,
-        phase: str = "title"
+        phase: str = "title",
+        raters: List[str] = None
     ):
         """ 
         Searches in the screening table for all rows with the same article_id and iteration.
         Only returns rows if all raters agree on the 'keep' value (i.e., all rows have the same keep value).
         If there are different keep values for the same article_id, returns an empty list.
+        If no raters are provided, consider all raters.
+        If rater are provided, do not consider the rows of raters not in the list.
         """
         table_name = "screening"
         original_row_factory = self.conn.row_factory
@@ -594,17 +662,63 @@ PRIMARY KEY(id, rater))"
             title_settled_int = 1 if title_settled else 0
             content_settled_int = 1 if content_settled else 0
             keep_key = f"keep_{phase}"
-            query = f"""
+            # Normalize keep value (1/'1'/True -> 1, 0/'0'/False -> 0) so "all agree" is detected correctly.
+            # Only treat as agreement when every (considered) rater has a value and they are all the same.
+            if raters is None:
+                query = f"""    
                 SELECT s1.* FROM {table_name} s1
                 WHERE s1.iteration = ? AND s1.title_settled = ? AND s1.content_settled = ?
                 AND (
-                    SELECT COUNT(DISTINCT s2.{keep_key}) 
-                    FROM {table_name} s2 
+                    SELECT COUNT(*) FROM {table_name} s2
                     WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                ) = (
+                    SELECT COUNT(*) FROM {table_name} s2
+                    WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                    AND s2.{keep_key} IS NOT NULL AND s2.{keep_key} != ''
+                )
+                AND (
+                    SELECT COUNT(DISTINCT CAST(s2.{keep_key} AS INTEGER))
+                    FROM {table_name} s2
+                    WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                    AND s2.{keep_key} IS NOT NULL AND s2.{keep_key} != ''
                 ) = 1
                 ORDER BY s1.id
-            """
-            values = (iteration, title_settled_int, content_settled_int)
+                """
+                values = (iteration, title_settled_int, content_settled_int)
+            else:
+                rater_placeholders = ", ".join("?" for _ in raters)
+                query = f"""
+                SELECT s1.* FROM {table_name} s1
+                WHERE s1.iteration = ? AND s1.title_settled = ? AND s1.content_settled = ?
+                AND s1.rater IN ({rater_placeholders})
+                AND (
+                    SELECT COUNT(*) FROM {table_name} s2
+                    WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                    AND s2.rater IN ({rater_placeholders})
+                ) = (
+                    SELECT COUNT(*) FROM {table_name} s2
+                    WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                    AND s2.rater IN ({rater_placeholders})
+                    AND s2.{keep_key} IS NOT NULL AND s2.{keep_key} != ''
+                )
+                AND (
+                    SELECT COUNT(DISTINCT CAST(s2.{keep_key} AS INTEGER))
+                    FROM {table_name} s2
+                    WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                    AND s2.rater IN ({rater_placeholders})
+                    AND s2.{keep_key} IS NOT NULL AND s2.{keep_key} != ''
+                ) = 1
+                ORDER BY s1.id
+                """
+                values = (
+                    iteration,
+                    title_settled_int,
+                    content_settled_int,
+                    *raters,
+                    *raters,
+                    *raters,
+                    *raters,
+                )
             cursor.execute(query, values)
             
             column_names = [description[0] for description in cursor.description]
@@ -640,13 +754,15 @@ PRIMARY KEY(id, rater))"
             title_settled_int = 1 if title_settled else 0
             content_settled_int = 1 if content_settled else 0
             keep_key = f"keep_{phase}"
+            # Normalize keep value so 1/'1'/True count as one value; only true disagreements (mixed 0 and 1) are returned
             query = f"""
                 SELECT s1.* FROM {table_name} s1
                 WHERE s1.iteration = ? AND s1.title_settled = ? AND s1.content_settled = ?
                 AND (
-                    SELECT COUNT(DISTINCT s2.{keep_key}) 
-                    FROM {table_name} s2 
+                    SELECT COUNT(DISTINCT CAST(s2.{keep_key} AS INTEGER))
+                    FROM {table_name} s2
                     WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                    AND s2.{keep_key} IS NOT NULL AND s2.{keep_key} != ''
                 ) > 1
                 ORDER BY s1.id
             """
@@ -666,7 +782,57 @@ PRIMARY KEY(id, rater))"
             return result
         except Exception as e:
             self.conn.rollback()
-            raise ValueError(f"Failed to get agreements screening data: {e}")
+            raise ValueError(f"Failed to get disagreements screening data: {e}")
+        finally:
+            self.conn.row_factory = original_row_factory
+
+    def get_all_disagreements_screening_data(self, iteration: int, phase: str) -> List[dict]:
+        """
+        Return screening rows for all articles that have a disagreement in this phase
+        (unsettled and already settled), so the CLI can show the full list and allow
+        changing previously settled decisions. For title phase filters content_settled=0;
+        for content phase filters title_settled=1.
+        """
+        table_name = "screening"
+        original_row_factory = self.conn.row_factory
+        try:
+            self.conn.row_factory = sqlite3.Row
+            cursor = self.conn.cursor()
+            keep_key = f"keep_{phase}"
+            phase_settled_key = f"{phase}_settled"
+            # Title phase: only rows with content_settled=0. Content phase: only title_settled=1.
+            if phase == "title":
+                base_conditions = "s1.iteration = ? AND s1.content_settled = 0"
+                params: Tuple = (iteration,)
+            else:
+                base_conditions = "s1.iteration = ? AND s1.title_settled = 1"
+                params = (iteration,)
+            query = f"""
+                SELECT s1.* FROM {table_name} s1
+                WHERE {base_conditions}
+                AND (
+                    SELECT COUNT(DISTINCT CAST(s2.{keep_key} AS INTEGER))
+                    FROM {table_name} s2
+                    WHERE s2.iteration = s1.iteration AND s2.id = s1.id
+                    AND s2.{keep_key} IS NOT NULL AND s2.{keep_key} != ''
+                ) > 1
+                ORDER BY s1.{phase_settled_key}, s1.id
+            """
+            cursor.execute(query, params)
+            column_names = [d[0] for d in cursor.description]
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                if isinstance(row, sqlite3.Row):
+                    row_dict = {key: row[key] for key in row.keys()}
+                else:
+                    row_dict = dict(zip(column_names, row))
+                result.append(row_dict)
+            cursor.close()
+            return result
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get all disagreements screening data: {e}")
         finally:
             self.conn.row_factory = original_row_factory
 
@@ -681,6 +847,103 @@ PRIMARY KEY(id, rater))"
         except Exception as e:
             self.conn.rollback()
             raise ValueError(f"Failed to settle screening data: {e}")
+
+    def sync_iteration_from_settled_screening(
+        self, iteration: int, phase: str, selection_stage: SelectionStage
+    ) -> None:
+        """
+        Ensure the iterations table matches screening for all articles that are already
+        settled for this phase. For each article where every rater has phase_settled=1,
+        if there is a single consensus keep_* value, set iterations.selected and keep_*
+        accordingly. Fixes cases where screening was settled but iterations was not updated.
+        """
+        table_name = "screening"
+        phase_settled_key = f"{phase}_settled"
+        keep_key = f"keep_{phase}"
+        try:
+            # Article ids where all screening rows have phase_settled=1
+            self.cursor.execute(
+                f"""
+                SELECT id FROM {table_name}
+                WHERE iteration = ?
+                GROUP BY id
+                HAVING MIN(CAST({phase_settled_key} AS INTEGER)) = 1
+                  AND MAX(CAST({phase_settled_key} AS INTEGER)) = 1
+                """,
+                (str(iteration),),
+            )
+            settled_ids = [row[0] for row in self.cursor.fetchall()]
+            for article_id in settled_ids:
+                self.cursor.execute(
+                    f"""
+                    SELECT COUNT(DISTINCT CAST({keep_key} AS INTEGER)),
+                           MAX(CAST({keep_key} AS INTEGER))
+                    FROM {table_name}
+                    WHERE iteration = ? AND id = ?
+                    AND {keep_key} IS NOT NULL AND {keep_key} != ''
+                    """,
+                    (str(iteration), article_id),
+                )
+                row = self.cursor.fetchone()
+                if not row or row[0] == 0:
+                    continue
+                distinct_count, consensus_int = row[0], row[1]
+                if distinct_count != 1:
+                    continue  # Resolved disagreement; iterations already set by user
+                keep_value = bool(consensus_int)
+                selected = selection_stage.value if keep_value else (selection_stage.value - 1)
+                self.update_iteration_data(iteration, article_id, selected=selected, **{keep_key: keep_value})
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to sync iteration from settled screening: {e}")
+
+    def get_screening_data_for_one_article(self, article_id: str, iteration: int, rater: str, phase: str, phase_settled: bool = False):
+        table_name = "screening"
+        try:
+            self.cursor.execute(f"SELECT * FROM {table_name} WHERE id = ? AND iteration = ? AND rater = ? AND {phase}_settled = ?", (article_id, iteration, rater, phase_settled))
+            return self.cursor.fetchone()
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get screening data for article: {e}")
+    
+    def get_screening_data_for_articles(self, article_ids: List[str], iteration: int, rater: str, phase: str, keep: bool = True):
+        table_name = "screening"
+        try:
+            if not article_ids:
+                return []
+            placeholders = ", ".join("?" for _ in article_ids)
+            query = f"SELECT * FROM {table_name} WHERE id IN ({placeholders}) AND iteration = ? AND rater = ? AND keep_{phase} = ?"
+            self.cursor.execute(query, (*article_ids, iteration, rater, 1 if keep else 0))
+            rows = self.cursor.fetchall()
+            column_names = [d[0] for d in self.cursor.description]
+            return [dict(zip(column_names, row)) for row in rows]
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get screening data for articles: {article_ids}: {e}")
+
+    def get_screening_data_for_rater(
+        self, article_ids: List[str], iteration: int, rater: str, phase: str
+    ) -> List[dict]:
+        """
+        Return screening rows for the given rater and articles that have a decision for the given phase.
+        phase: "title" or "content" – only rows with keep_{phase} set (from that screening stage) are returned.
+        Used to pre-fill / edit when re-running title or content screening.
+        """
+        table_name = "screening"
+        try:
+            if not article_ids:
+                return []
+            placeholders = ", ".join("?" for _ in article_ids)
+            self.cursor.execute(
+                f"SELECT * FROM {table_name} WHERE id IN ({placeholders}) AND iteration = ? AND rater = ? AND keep_{phase} IS NOT NULL",
+                (*article_ids, iteration, rater)
+            )
+            rows = self.cursor.fetchall()
+            column_names = [d[0] for d in self.cursor.description]
+            return [dict(zip(column_names, row)) for row in rows]
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get screening data for rater: {e}")
 
     # -------------------------- Final Annotations Table Methods --------------------------
     def create_annotations_table(self, annotations: List[str]):
@@ -776,6 +1039,24 @@ PRIMARY KEY(id, rater))"
         except Exception as e:
             self.conn.rollback()
             raise ValueError(f"Failed to get screening raters: {e}")
+
+    def get_screened_article_ids(self, iteration: int, rater: str, phase: str = "title") -> List[str]:
+        """Get article ids that already have a screening decision for this iteration and rater (excluded when resuming).
+        phase: 'title' = any row (title screened); 'content' = row with content decision (reason_content not null)."""
+        table_name = "screening"
+        try:
+            if phase == "content":
+                self.cursor.execute(
+                    f"SELECT DISTINCT id FROM {table_name} WHERE iteration = ? AND rater = ? AND reason_content IS NOT NULL AND reason_content != ''",
+                    (iteration, rater)
+                )
+            else:
+                self.cursor.execute(f"SELECT DISTINCT id FROM {table_name} WHERE iteration = ? AND rater = ?", (iteration, rater))
+            rows = self.cursor.fetchall()
+            return [row[0] or "" for row in rows if row[0]]
+        except Exception as e:
+            self.conn.rollback()
+            raise ValueError(f"Failed to get screened article ids: {e}")
 
     def get_screening_rows_by_rater(self, rater: str, iteration: int = None) -> List[dict]:
         """Get all screening rows for a given rater, optionally filtered by iteration."""

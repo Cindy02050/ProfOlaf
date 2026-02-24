@@ -121,6 +121,8 @@ def _extract_pdf_url(html: str, base_url: str) -> str | None:
 
     return None
 
+
+
 def download_pdf(url: str, output_path: str, timeout: int = 30) -> bool:
     """
     Downloads a PDF from a URL, handling meta-refresh and iframe redirects.

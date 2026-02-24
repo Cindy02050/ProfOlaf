@@ -4,9 +4,22 @@ from utils.cli.pretty_print_utils import (
     format_color_string, 
     prompt_input
 )
+from prompt_toolkit import Application
+from prompt_toolkit.layout import Layout, HSplit, Window, ScrollablePane
+from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.widgets import TextArea, Button, Label
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.filters import has_focus
+
+# Styles for screening index (colored y/n/-, current article)
+_STYLE_GREEN = "fg:green"
+_STYLE_RED = "fg:red"
+_STYLE_PURPLE = "bold purple"
+_STYLE_DIM = "dim"
 
 from ..db_management import SelectionStage, ArticleData
-
+from typing import List, Optional, Any
 
 # ================================ Manual Screening ================================
 
@@ -26,14 +39,17 @@ def is_annotations_to_fill(annotation_list: list[str], selection_stage: Selectio
 
 # -------------------------- Main Functions --------------------------
 
-def introduce_annotations(user_data: dict, annotations: list) -> dict:
+def introduce_annotations(user_data: dict, annotations: list, initial_values: Optional[dict] = None) -> dict:
     """
     Collect annotation data from the user using an interactive form.
     All fields are displayed at once, user can navigate with Tab/Shift+Tab,
     fill fields in any order, and submit at the end.
+    If initial_values is provided (e.g. from previous screening), fields are pre-filled for editing.
     """
     if not annotations or len(annotations) == 0:
         return user_data
+    
+    initial_values = initial_values or {}
     
     # Create key bindings
     kb = KeyBindings()
@@ -50,13 +66,17 @@ def introduce_annotations(user_data: dict, annotations: list) -> dict:
     def _(event):
         event.app.exit(result=None)
     
-    # Create form fields for each annotation
+    # Create form fields for each annotation (pre-fill when editing)
     fields = {}
     field_widgets = []
     
     for annotation in annotations:
+        initial_text = (initial_values.get(annotation) or "").strip()
+        if isinstance(initial_text, bytes):
+            initial_text = initial_text.decode("utf-8", errors="replace")
         field = TextArea(
             prompt=f"{annotation}: ",
+            text=initial_text,
             multiline=False,
             focusable=True,
         )
@@ -108,41 +128,96 @@ def introduce_annotations(user_data: dict, annotations: list) -> dict:
     
     return user_data
 
-def process_article(article, db_manager, iteration, rater, selection_stage, annotation_list: list[str]):
+def _previous_data_from_row(row: dict, selection_stage: SelectionStage, annotation_list: list[str]) -> Optional[dict]:
+    """Build a previous_data dict from a screening row for pre-filling the form."""
+    if not row:
+        return None
+    phase = "title" if selection_stage == SelectionStage.TITLE_APPROVED else "content"
+    keep_key = f"keep_{phase}"
+    reason_key = f"reason_{phase}"
+    keep_val = row.get(keep_key)
+    keep = None
+    if keep_val is not None:
+        keep = bool(keep_val) if isinstance(keep_val, (bool, int)) else (str(keep_val).strip() in ("1", "true", "yes"))
+    reason = (row.get(reason_key) or "") or ""
+    if hasattr(reason, "decode"):
+        reason = reason.decode("utf-8", errors="replace") if isinstance(reason, bytes) else str(reason)
+    out = {"keep": keep, "reason": reason}
+    for ann in annotation_list:
+        v = row.get(ann) or ""
+        if hasattr(v, "decode"):
+            v = v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
+        out[ann] = v
+    return out
+
+
+def process_article(
+    article: ArticleData,
+    previously_screened: bool,
+    selection_stage: SelectionStage,
+    annotation_list: list[str],
+    previous_data: Optional[dict] = None,
+):
     """
     Process a single article and return the decision made.
+    If previous_data is provided (article was previously screened), the form is shown with
+    previous keep/reason/annotations pre-filled so the user can edit.
     Returns: tuple (decision, reason) where decision is 'y', 'n', 's', or 'b'
     """
     title_string = format_color_string(article.title, "magenta", "bold")
-    
-    if not is_correct_article_stage(article, selection_stage):
+
+    # When editing previous screening, show the article regardless of stage
+    if previous_data is None and not is_correct_article_stage(article, selection_stage):
         pretty_print(f"Skipping Article {title_string}")
         return None, None
-    
 
-    article_info_string = f"Title: {title_string}\n"
+    article_info_string = ""
+    if previous_data:
+        prev_keep = "Keep" if previous_data.get("keep") else "Reject"
+        prev_reason = (previous_data.get("reason") or "").strip() or "(none)"
+        color = "green" if previous_data.get("keep") else "red"
+        article_info_string += format_color_string(f"\nCurrent Decision: {prev_keep} Reason: {prev_reason}\n", color, "")
+    article_info_string += f"Title: {title_string}\n"
     article_info_string += f"ID: {article.id}\n"
     article_info_string += f"Url: {article.pub_url}\n" if selection_stage == SelectionStage.CONTENT_APPROVED else ""
-    
+
+    # Default keep/reason from previous screening (so they show as pre-filled and Enter keeps them)
+    default_keep = None
+    default_reason = ""
+    if previous_data:
+        if previous_data.get("keep") is not None:
+            default_keep = "y" if previous_data.get("keep") else "n"
+        default_reason = (previous_data.get("reason") or "").strip()
+
     while True:
         pretty_print(article_info_string)
-        user_input = prompt_input(f"Do you want to keep this element? (y/n/s for skip/b for back)").strip().lower()
-        if user_input == 'y':
-            user_reason = prompt_input(f"Please enter the reason for the selection (enter to skip)").strip()
+        prompt_keep = "Do you want to keep this element? (y/n/s for skip/b for back/i for index)"
+        user_input = prompt_input(prompt_keep, default=default_keep).strip().lower() if default_keep else prompt_input(prompt_keep).strip().lower()
+        if user_input == "i":
+            return "i", None
+        if user_input == "y":
+            reason_prompt = "Please enter the reason for the selection (enter to keep previous or skip)"
+            user_reason = prompt_input(reason_prompt, default=default_reason).strip() if default_reason else prompt_input(reason_prompt).strip()
+            if not user_reason and default_reason:
+                user_reason = default_reason
             user_data = {"reason": user_reason}
             if is_annotations_to_fill(annotation_list, selection_stage):
-                user_data = introduce_annotations(user_data, search_conf.get("annotations", []))
-            return 'y', user_data
-        elif user_input == 'n':
-            user_reason = prompt_input(f"Please enter the reason for the rejection (enter to skip)").strip()
+                initial_ann = {k: v for k, v in (previous_data or {}).items() if k in annotation_list} or None
+                user_data = introduce_annotations(user_data, annotation_list, initial_values=initial_ann)
+            return "y", user_data
+        elif user_input == "n":
+            reason_prompt = "Please enter the reason for the rejection (enter to keep previous or skip)"
+            user_reason = prompt_input(reason_prompt, default=default_reason).strip() if default_reason else prompt_input(reason_prompt).strip()
+            if not user_reason and default_reason:
+                user_reason = default_reason
             user_data = {"reason": user_reason}
-            return 'n', user_data
-        elif user_input == 's':
-            return 's', None
-        elif user_input == 'b':
-            return 'b', None
+            return "n", user_data
+        elif user_input == "s":
+            return "s", None
+        elif user_input == "b":
+            return "b", None
         else:
-            pretty_print("Please enter 'y' for yes, 'n' for no, 's' for skip, or 'b' for back.")
+            pretty_print("Please enter 'y' for yes, 'n' for no, 's' for skip, 'b' for back, or 'i' for index.")
 
 def apply_decision(db_manager, article, iteration, rater, decision, reason, screening_phase: str="title", **annotations: str):
     """
@@ -190,35 +265,229 @@ def undo_decision(db_manager, article, iteration, rater, screening_phase: str="t
         **update_kwargs
     )
 
-def choose_elements(articles, db_manager, iteration, rater, selection_stage: SelectionStage, annotation_list: list[str]): 
+def _previously_screened_article(article: ArticleData, existing_screening_data: List[dict], current_run_data: Optional[dict] = None) -> bool:
+    """True if article was screened before (in DB at start or in current run)."""
+    if current_run_data and article.id in current_run_data:
+        return True
+    return article.id in [screening_data["id"] for screening_data in existing_screening_data]
+
+def _previous_data_for_article(
+    article_id: str,
+    existing_screening_data: List[dict],
+    selection_stage: SelectionStage,
+    annotation_list: list[str],
+    current_run_data: Optional[dict] = None,
+) -> Optional[dict]:
+    """Get previous_data for an article: prefer current-run entry, else from existing_screening_data."""
+    if current_run_data and article_id in current_run_data:
+        return current_run_data[article_id]
+    for row in existing_screening_data:
+        if row.get("id") == article_id:
+            return _previous_data_from_row(row, selection_stage, annotation_list)
+    return None
+
+
+def _decision_for_article(
+    article_id: str,
+    existing_screening_data: List[dict],
+    current_run_data: Optional[dict],
+    screening_phase: str,
+) -> str:
+    """Return 'y', 'n', or '-' for the article's current decision."""
+    if current_run_data and article_id in current_run_data:
+        keep = current_run_data[article_id].get("keep")
+        return "y" if keep else "n" if keep is False else "-"
+    for row in existing_screening_data:
+        if row.get("id") == article_id:
+            keep_val = row.get(f"keep_{screening_phase}")
+            if keep_val is None:
+                return "-"
+            return "y" if (keep_val == 1 or keep_val is True) else "n"
+    return "-"
+
+
+def _show_index_and_jump(
+    articles: List[ArticleData],
+    existing_screening_data: List[dict],
+    current_run_data: dict,
+    screening_phase: str,
+    current_i: int,
+) -> int:
+    """Show scrollable index (position, colored y/n/-, title). Current article in purple. Returns index to go to (0-based)."""
+    max_title_len = 70
+    n_articles = len(articles)
+    # Header row
+    header_fragments: List[tuple] = [("", "--- Index ---  [y]=keep [n]=reject [-]=pending  (↑/↓ scroll, Tab: list↔input, Enter on row or type number+Enter to go)\n\n")]
+    header_control = FormattedTextControl(text=header_fragments, focusable=True)
+    header_window = Window(content=header_control, wrap_lines=False)
+
+    # One focusable row per article so arrow keys move focus and pane scrolls to follow
+    item_windows: List[Any] = []
+    for idx, a in enumerate(articles):
+        title = (a.title or "").strip()
+        if len(title) > max_title_len:
+            title = title[: max_title_len - 1] + "…"
+        dec = _decision_for_article(a.id, existing_screening_data, current_run_data, screening_phase)
+        if dec == "y":
+            box_style, box_text = _STYLE_GREEN, "[y]"
+        elif dec == "n":
+            box_style, box_text = _STYLE_RED, "[n]"
+        else:
+            box_style, box_text = _STYLE_DIM, "[-]"
+        title_style = _STYLE_PURPLE if idx == current_i else ""
+        row_fragments: List[tuple] = [
+            ("", f"  {idx + 1:3d}/{n_articles}  "),
+            (box_style, box_text),
+            (title_style, f"  {title}\n"),
+        ]
+        row_control = FormattedTextControl(text=row_fragments, focusable=True)
+        item_windows.append(Window(content=row_control, wrap_lines=False))
+
+    list_height = min(12, max(6, n_articles + 2))
+    inner = HSplit([header_window] + item_windows)
+    list_area = ScrollablePane(inner, height=list_height)
+    go_to_prompt = f"Go to article (1-{n_articles}) or Enter to return: "
+    input_area = TextArea(
+        prompt=go_to_prompt,
+        multiline=False,
+        focusable=True,
+        height=1,
+    )
+
+    kb = KeyBindings()
+
+    @kb.add("c-c")
+    def _(event):
+        event.app.exit(result=current_i)
+
+    @kb.add("enter", filter=has_focus(input_area))
+    def _enter_in_input(event):
+        raw = input_area.text.strip()
+        if not raw:
+            event.app.exit(result=current_i)
+            return
+        try:
+            num = int(raw)
+            if 1 <= num <= n_articles:
+                event.app.exit(result=num - 1)
+        except ValueError:
+            pass
+
+    # Enter on a list row: go to that article; Enter on header: return without changing
+    def _make_enter_handler(go_to_index: int):
+        def _handler(event: Any) -> None:
+            event.app.exit(result=go_to_index)
+        return _handler
+
+    kb.add("enter", filter=has_focus(header_window))(lambda e: e.app.exit(result=current_i))
+    for idx, win in enumerate(item_windows):
+        kb.add("enter", filter=has_focus(win))(_make_enter_handler(idx))
+
+    @kb.add(Keys.Up)
+    def _up(event: Any) -> None:
+        event.app.layout.focus_previous()
+
+    @kb.add(Keys.Down)
+    def _down(event: Any) -> None:
+        event.app.layout.focus_next()
+
+    # Tab only toggles between list (visualization, scroll with ↑/↓) and input (type number + Enter to go)
+    input_has_focus = has_focus(input_area)
+
+    @kb.add("tab")
+    def _tab(event: Any) -> None:
+        if input_has_focus():
+            event.app.layout.focus(item_windows[current_i] if n_articles else input_area)
+        else:
+            event.app.layout.focus(input_area)
+
+    @kb.add("s-tab")
+    def _stab(event: Any) -> None:
+        if input_has_focus():
+            event.app.layout.focus(item_windows[current_i] if n_articles else input_area)
+        else:
+            event.app.layout.focus(input_area)
+
+    layout = Layout(
+        HSplit([
+            list_area,
+            Label(text=""),
+            input_area,
+        ]),
+        focused_element=item_windows[current_i] if n_articles else input_area,
+    )
+    app = Application(
+        layout=layout,
+        key_bindings=kb,
+        full_screen=False,
+        mouse_support=True,
+    )
+
+    def on_input_accept():
+        raw = input_area.text.strip()
+        if not raw:
+            app.exit(result=current_i)
+        else:
+            try:
+                num = int(raw)
+                if 1 <= num <= n_articles:
+                    app.exit(result=num - 1)
+            except ValueError:
+                pass
+
+    input_area.buffer.accept_handler = on_input_accept
+
+    out = app.run()
+    return out if out is not None else current_i
+
+
+def choose_elements(articles: List[ArticleData], existing_screening_data: List[dict], db_manager, iteration, rater, selection_stage: SelectionStage, annotation_list: list[str]):
     """
     Choose the elements by title with ability to go back.
-    selection_stage: SelectionStage - the stage of the selection - either TITLE_APPROVED or CONTENT_APPROVED
+    Previously screened articles (from DB or from current run) are shown with options pre-filled for editing.
+    When you go back (b), the article you return to shows the data you just entered in this run.
     """
-    i = 0
-    decisions = []  
+    # Deduplicate by article id (iterations table can have duplicate rows for same id); keep first occurrence
+    seen_ids: set[str] = set()
+    deduped: List[ArticleData] = []
+    for a in articles:
+        if a.id in seen_ids:
+            continue
+        seen_ids.add(a.id)
+        deduped.append(a)
+    articles = deduped
+    decisions = []
+    # article_id -> { keep, reason, **annotations } for decisions made in this run (so "go back" shows them)
+    current_run_data: dict[str, dict] = {}
     screening_phase = "title" if selection_stage == SelectionStage.TITLE_APPROVED else "content"
+    # Sort so previously screened articles come first (for editing)
+    articles.sort(key=lambda x: (0 if _previously_screened_article(x, existing_screening_data, None) else 1))
+    # Start at the first not-previously-evaluated article (at start, only DB data counts)
+    i = 0
+    while i < len(articles) and _previously_screened_article(articles[i], existing_screening_data, None):
+        i += 1
     while i < len(articles):
         print(f"\n({i+1}/{len(articles)})")
         article = articles[i]
-        decision, rater_data = process_article(article, db_manager, iteration, rater, selection_stage, annotation_list)
-        if decision == 'b':
+        previously_screened = _previously_screened_article(article, existing_screening_data, current_run_data)
+        previous_data = _previous_data_for_article(
+            article.id, existing_screening_data, selection_stage, annotation_list, current_run_data
+        )
+        decision, rater_data = process_article(article, previously_screened, selection_stage, annotation_list, previous_data=previous_data)
+        if decision == "b":
             if i > 0:
-                prev_index = i - 1
-                prev_article = articles[prev_index]
-                undo_decision(db_manager, prev_article, iteration, rater, screening_phase, annotation_list)
-                
-                if decisions and decisions[-1][0] == prev_index:
-                    decisions.pop()
-                
+                # Just move back to edit the previous article; do not undo (so DB and next run keep that decision)
                 i -= 1
                 pretty_print(format_color_string("Going back to previous article...", "yellow", "bold"))
             else:
                 pretty_print(format_color_string("Cannot go back: already at the first article.", "red", "bold"))
+        elif decision == "i":
+            i = _show_index_and_jump(articles, existing_screening_data, current_run_data, screening_phase, i)
         elif decision is not None:
-            if decision != 's':
+            if decision != "s":
                 reason = rater_data.pop("reason")
                 apply_decision(db_manager, article, iteration, rater, decision, reason, screening_phase, **rater_data)
+                current_run_data[article.id] = {"keep": decision == "y", "reason": reason, **rater_data}
                 decisions.append((i, decision, reason, rater_data))
             i += 1
         else:

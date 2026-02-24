@@ -1,3 +1,4 @@
+import json
 import sys
 import argparse
 from enum import Enum
@@ -24,4 +25,7 @@ if __name__ == "__main__":
         merged_db = merge_databases(search_dbs)
     else:
         merged_db = DBManager(search_dbs[0])
-    solve_disagreements(iteration, merged_db, selection_stage)
+    with open("confs/search_conf.json", "r") as f:
+        search_conf = json.load(f)
+    annotation_list = search_conf.get("annotations", []) or []
+    solve_disagreements(iteration, merged_db, selection_stage, annotation_list=annotation_list)

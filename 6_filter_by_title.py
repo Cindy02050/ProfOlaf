@@ -19,20 +19,22 @@ def main(iteration, db_path, rater, llm, model, api_key):
     """Filter articles by title with interactive CLI."""
     if db_path is None:
         db_path = search_conf["db_path"]
-    
     db_manager = DBManager(db_path)
     articles = db_manager.get_iteration_data(
         iteration=iteration, 
         selected=SelectionStage.METADATA_APPROVED
     )
     if not llm:
+        article_ids = [a.id for a in articles]
+        existing_screening_data = db_manager.get_screening_data_for_rater(article_ids, iteration, rater, phase="title")
         choose_elements(
-            articles, 
-            db_manager, 
-            iteration, 
-            rater, 
-            SelectionStage.TITLE_APPROVED, 
-            search_conf.get("annotations", [])
+            articles,
+            existing_screening_data,
+            db_manager,
+            iteration,
+            rater,
+            SelectionStage.TITLE_APPROVED,
+            search_conf.get("annotations", []),
         )
     else:
         screen_papers(

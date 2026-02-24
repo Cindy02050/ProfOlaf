@@ -116,9 +116,10 @@ def filter_elements(db_manager: DBManager, iteration: int, disable_venue_check, 
     """
     Filter the elements by metadata.
     """
-    bibtex_not_empty = True if not (disable_venue_check or disable_year_check or disable_download_check) else False
-    print("bibtex_not_empty", bibtex_not_empty)
+    # If we are filtering by venue, year or download, we need to get all articles that have a bibtex, otherwise we get all articles that are not selected.
+    bibtex_not_empty = True if not (disable_venue_check and disable_year_check and disable_download_check) else False
     if bibtex_not_empty:
+        print("Getting all articles that have a bibtex")
         article_data = db_manager.get_iteration_data(
             iteration=iteration, 
             bibtex__not_empty=True, 
@@ -126,11 +127,12 @@ def filter_elements(db_manager: DBManager, iteration: int, disable_venue_check, 
             selected=SelectionStage.NOT_SELECTED
         )
     else:
+        print("Getting all articles that are not selected")
         article_data = db_manager.get_iteration_data(
             iteration=iteration, 
             selected=SelectionStage.NOT_SELECTED
         )
-    
+    print("article_data", len(article_data))
     updated_data = []
     articles_kept_counter = 0
     for i, article in enumerate(article_data):
