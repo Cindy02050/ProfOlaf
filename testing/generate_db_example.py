@@ -294,6 +294,8 @@ def populate_db(db_manager: DBManager, phase: Phase, length: int, iterations: in
     match phase:
         case Phase.DEFAULT:
             populate_default(db_manager, length, iterations, search_conf)
+        case Phase.METADATA_SCREENED:
+            populate_metadata_screened(db_manager, length, iterations, search_conf)
         case Phase.TITLE_SCREENED:
             populate_title_screened(db_manager, length, raters, search_conf)
         case Phase.TITLE_SOLVED:

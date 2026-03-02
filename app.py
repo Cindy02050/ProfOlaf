@@ -2825,7 +2825,8 @@ def save_title_filter_result():
         # Convert 'approve'/'reject' to 'y'/'n' format expected by apply_decision
         decision_char = 'y' if decision == 'approve' else 'n'
         
-        # Use apply_decision from screening.py to insert into screening table
+        # Use apply_decision from screening.py to insert into screening table only.
+        # Iterations table keep_title/selected are updated only in solve_title_disagreements.
         apply_decision(
             db_manager=db_manager,
             article=article,
@@ -2835,20 +2836,6 @@ def save_title_filter_result():
             reason=reason or '',
             screening_phase="title"
         )
-        
-        # Update iterations table so this article is no longer in "needs title filter" list (enables resume)
-        if decision == 'approve':
-            db_manager.update_iteration_data(
-                iteration, article_id,
-                selected=SelectionStage.TITLE_APPROVED.value,
-                keep_title=True
-            )
-        else:
-            db_manager.update_iteration_data(
-                iteration, article_id,
-                selected=SelectionStage.METADATA_APPROVED.value,
-                keep_title=False
-            )
         
         # Update workflow state
         update_workflow_state(
@@ -3202,18 +3189,7 @@ def save_content_filter_result():
                 screening_phase="content"
             )
         
-        # Update iterations table so this article is no longer in "needs content filter" list (enables resume)
-        if decision == 'approve':
-            db_manager.update_iteration_data(
-                iteration, article_id,
-                selected=SelectionStage.CONTENT_APPROVED.value,
-                keep_content=True
-            )
-        else:
-            db_manager.update_iteration_data(
-                iteration, article_id,
-                keep_content=False
-            )
+        # Iterations table keep_content/selected are updated only in solve_content_disagreements.
         
         # Update workflow state
         update_workflow_state(
