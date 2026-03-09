@@ -259,16 +259,31 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
         return ArticleData(**article_data)
 
     def search(self, query: str):
+        initial_delay = 1
         response = requests.get(self.search_query.format(query=query), timeout=60)
-        response.raise_for_status()
-        if response.status_code != 200:
+        while response.status_code == 429:
+            print(f"{SS_SEARCH_TAG} Rate limit exceeded for", query)
+            retry_after = int(response.headers.get("Retry-After", initial_delay))
+            print(f"Rate limited. Waiting {retry_after} seconds...")
+            time.sleep(retry_after)
+            response = requests.get(self.search_query.format(query=query), timeout=60)
+            if initial_delay <= 32:
+                initial_delay *= 2
+
+        try:
+            response.raise_for_status()
+            if response.status_code != 200:
+                print(f"{SS_SEARCH_TAG} Article not found for", query)
+                return None
+            data = response.json()
+            pub = self.map_to_pub(data["data"][0])
+            # Return articleData
+            article_data = self.get_article_data(pub, pub["paperId"], new_pub=True,
+                                                 selected=SelectionStage.NOT_SELECTED, search_method=self.name)
+            return article_data
+        except Exception as e:
             print(f"{SS_SEARCH_TAG} Article not found for", query)
             return None
-        data = response.json()
-        pub = self.map_to_pub(data["data"][0])
-        # Return articleData
-        article_data = self.get_article_data(pub, pub["paperId"], new_pub=True, selected=SelectionStage.NOT_SELECTED, search_method=self.name)
-        return article_data
     
     def map_to_pub(self, article: dict):
         """
@@ -309,7 +324,8 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
             print(f"Rate limited. Waiting {retry_after} seconds...")
             time.sleep(retry_after)
             response = requests.get(bibtex_query, timeout=60)
-            initial_delay *= 2 
+            if initial_delay <= 32:
+                initial_delay *= 2
         try:
             response.raise_for_status()
             if response.status_code != 200:
@@ -335,7 +351,8 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
                 retry_after = int(response.headers.get("Retry-After", initial_delay))
                 print(f"Rate limited. Waiting {retry_after} seconds...")
                 time.sleep(retry_after)
-                initial_delay *= 2
+                if initial_delay <= 32:
+                    initial_delay *= 2
                 continue
             elif response.status_code != 200:
                 print(f"{SS_SEARCH_TAG} Citations not found for", citedby)
@@ -368,7 +385,8 @@ class SemanticScholarSearchMethod(ArticleSearchMethod):
                 retry_after = int(response.headers.get("Retry-After", initial_delay))
                 print(f"Rate limited. Waiting {retry_after} seconds...")
                 time.sleep(retry_after)
-                initial_delay *= 2
+                if initial_delay <= 32:
+                    initial_delay *= 2
                 continue
             elif response.status_code != 200:
                 print(f"{SS_SEARCH_TAG} References not found for", citedby)
