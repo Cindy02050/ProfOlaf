@@ -1,10 +1,6 @@
 {
   "db_path": "D:\\2026research\\ProfOlaf\\databases\\test.db",
   "current_iteration": 1,
-  "last_step": "Step 2: Remove Duplicates",
-  "skipped_steps": [
-    "Step 2: Get BibTeX",
-    "Step 4: Filter by Metadata",
-    "Step 3: Assign Venue Ranks"
-  ]
+  "last_step": "Step 6: Filter by Title",
+  "skipped_steps": []
 }
