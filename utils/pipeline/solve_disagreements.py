@@ -310,9 +310,14 @@ def solve_disagreements(
         # Get all screening data for this iteration and phase
         screening_data = merged_db.get_screening_data(
             iteration=iteration,
-            title_settled=(selection_stage == SelectionStage.CONTENT_APPROVED),
+            title_settled=(selection_stage.value == SelectionStage.CONTENT_APPROVED.value),
             content_settled=False
         )
+
+        # print(selection_stage)
+        # print(SelectionStage.CONTENT_APPROVED)
+        # print(len(screening_data))
+        # return
         
         # Group by article ID (should only be one entry per article since there's only one rater)
         for screening_entry in screening_data:

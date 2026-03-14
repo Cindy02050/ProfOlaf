@@ -1,6 +1,6 @@
 {
   "db_path": "D:\\2026research\\ProfOlaf\\databases\\test.db",
-  "current_iteration": 1,
-  "last_step": "Step 8: Filter by Content",
+  "current_iteration": 2,
+  "last_step": "Step 2: Remove Duplicates",
   "skipped_steps": []
 }
